@@ -73,19 +73,21 @@ public class MapGlobalResolver
     public Collection<String> getGlobalKeys() {
         if ( delegate == null ) {
             return Collections.unmodifiableCollection(map.keySet());
-        } else if ( map.isEmpty() ) {
+        } else {
             //FIX: delegate must extends MapGlobalResolver? I am afraid not.
             //I think that return delegate.getGlobalKeys() is bester then cast delegate to (MapGlobalResolver)
             Collection<String> delegateKeys = delegate.getGlobalKeys();
-            return delegateKeys == null ? 
-                        Collections.unmodifiableCollection(new ArrayList<String>())
+            delegateKeys =  delegateKeys == null ? 
+                        Collections.EMPTY_LIST
                         :
                         delegateKeys;
-            //return Collections.unmodifiableCollection( ((MapGlobalResolver) delegate).map.keySet() );
-        } else {
-            Collection<String> combined = new HashSet<String>( map.keySet() );
-            combined.addAll( ((MapGlobalResolver) delegate).map.keySet() );
-            return Collections.unmodifiableCollection( combined );
+            if ( map.isEmpty() ) {
+                return Collections.unmodifiableCollection(delegateKeys);
+            } else {
+                Collection<String> combined = new HashSet<String>( map.keySet() );
+                combined.addAll( delegateKeys.keySet() );
+                return Collections.unmodifiableCollection( combined );
+            }
         }
     }
 
