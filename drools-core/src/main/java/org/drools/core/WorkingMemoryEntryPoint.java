@@ -1,22 +1,34 @@
-/*
- * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core;
 
-
+import org.drools.base.definitions.rule.impl.RuleImpl;
+import org.drools.base.rule.EntryPointId;
+import org.drools.core.common.ObjectStore;
+import org.drools.core.common.ObjectTypeConfigurationRegistry;
+import org.drools.core.common.ReteEvaluator;
+import org.drools.core.impl.InternalRuleBase;
+import org.drools.core.reteoo.EntryPointNode;
+import org.drools.core.reteoo.TerminalNode;
+import org.drools.core.rule.accessor.FactHandleFactory;
+import org.drools.core.rule.consequence.InternalMatch;
+import org.drools.util.bitmask.BitMask;
 import org.kie.api.runtime.rule.EntryPoint;
 import org.kie.api.runtime.rule.FactHandle;
 
@@ -25,15 +37,6 @@ import org.kie.api.runtime.rule.FactHandle;
  * facts
  */
 public interface WorkingMemoryEntryPoint extends EntryPoint {
-    /**
-     * Assert a fact.
-     * 
-     * @param object
-     *            The fact object.
-     * 
-     * @return The new fact-handle associated with the object.
-     */
-    FactHandle insert(Object object);
 
     /**
      * Insert a fact registering JavaBean <code>PropertyChangeListeners</code>
@@ -52,31 +55,46 @@ public interface WorkingMemoryEntryPoint extends EntryPoint {
                       boolean dynamic);
 
     /**
-     * Retract a fact.
-     * 
-     * @param handle
-     *            The fact-handle associated with the fact to retract.
-     */
-    void retract(FactHandle handle);
-
-    /**
-     * Inform the WorkingMemory that a Fact has been modified and that it
-     * should now update the network.
-     * 
-     * @param handle
-     *            The fact-handle associated with the fact to modify.
-     * @param object
-     *            The new value of the fact.
-     */
-    void update(FactHandle handle,
-                Object object);
-
-    public WorkingMemoryEntryPoint getWorkingMemoryEntryPoint(String name);
-    
-    /**
      * Internal method called by the engine when the session is being disposed, so that the entry point
      * can proceed with the necessary clean ups.
      */
     void dispose();
 
+    ObjectTypeConfigurationRegistry getObjectTypeConfigurationRegistry();
+
+    InternalRuleBase getKnowledgeBase();
+
+    void delete(FactHandle factHandle,
+                RuleImpl rule,
+                TerminalNode terminalNode );
+
+    void delete(FactHandle factHandle,
+                RuleImpl rule,
+                TerminalNode terminalNode,
+                FactHandle.State fhState);
+
+    void update(FactHandle handle,
+                Object object,
+                BitMask mask,
+                Class<?> modifiedClass,
+                InternalMatch internalMatch);
+
+    EntryPointId getEntryPoint();
+    ReteEvaluator getReteEvaluator();
+
+    void reset();
+
+    ObjectStore getObjectStore();
+
+    FactHandleFactory getHandleFactory();
+
+    EntryPointNode getEntryPointNode();
+
+    default Object getRuleUnit() {
+        return null;
+    }
+
+    default void setRuleUnit(Object ruleUnit) {
+
+    }
 }

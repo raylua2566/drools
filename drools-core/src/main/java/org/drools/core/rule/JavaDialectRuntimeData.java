@@ -1,80 +1,77 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.rule;
-
-import org.drools.core.common.ProjectClassLoader;
-import org.drools.core.definitions.impl.KnowledgePackageImpl;
-import org.drools.core.definitions.rule.impl.RuleImpl;
-import org.drools.core.spi.Constraint;
-import org.drools.core.spi.Wireable;
-import org.drools.core.util.ClassUtils;
-import org.drools.core.util.KeyStoreHelper;
-import org.drools.core.util.StringUtils;
-import org.kie.internal.concurrent.ExecutorProviderFactory;
-import org.kie.internal.utils.FastClassLoader;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Externalizable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.ObjectInput;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
-import java.net.URL;
-import java.security.AccessController;
 import java.security.InvalidKeyException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivilegedAction;
-import java.security.ProtectionDomain;
 import java.security.SignatureException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 
-import static org.drools.core.util.ClassUtils.convertClassToResourcePath;
-import static org.drools.core.util.ClassUtils.convertResourceToClassName;
+import org.drools.base.definitions.impl.KnowledgePackageImpl;
+import org.drools.base.definitions.rule.impl.QueryImpl;
+import org.drools.base.definitions.rule.impl.RuleImpl;
+import org.drools.base.rule.ConditionalElement;
+import org.drools.base.rule.DialectRuntimeData;
+import org.drools.base.rule.DialectRuntimeRegistry;
+import org.drools.base.rule.EvalCondition;
+import org.drools.base.rule.Function;
+import org.drools.base.rule.GroupElement;
+import org.drools.base.rule.accessor.Wireable;
+import org.drools.core.util.KeyStoreHelper;
+import org.drools.util.StringUtils;
+import org.drools.wiring.api.ComponentsFactory;
+import org.drools.wiring.api.classloader.ProjectClassLoader;
+import org.kie.internal.concurrent.ExecutorProviderFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class JavaDialectRuntimeData
-                                   implements
-                                   DialectRuntimeData,
-                                   Externalizable {
+import static org.drools.util.ClassUtils.convertClassToResourcePath;
+import static org.drools.util.ClassUtils.convertResourceToClassName;
+
+public class JavaDialectRuntimeData implements DialectRuntimeData, Externalizable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(JavaDialectRuntimeData.class);
 
     private static final long              serialVersionUID = 510l;
 
-    private static final ProtectionDomain  PROTECTION_DOMAIN;
+    private final Map<String, Wireable>    invokerLookups = new ConcurrentHashMap<>();
 
-    private Map<String, Object>            invokerLookups;
+    private final Map<String, byte[]>      classLookups = new ConcurrentHashMap<>();
 
-    private Map<String, byte[]>            classLookups;
-
-    private Map<String, byte[]>            store;
+    private Map<String, byte[]>            store = new HashMap<>();
 
     private transient ClassLoader          classLoader;
 
@@ -82,21 +79,9 @@ public class JavaDialectRuntimeData
 
     private boolean                        dirty;
 
-    private List<String>                   wireList         = Collections.<String> emptyList();
-
-    static {
-        PROTECTION_DOMAIN = (ProtectionDomain) AccessController.doPrivileged( new PrivilegedAction() {
-
-            public Object run() {
-                return JavaDialectRuntimeData.class.getProtectionDomain();
-            }
-        } );
-    }
+    private List<String>                   wireList         = Collections.emptyList();
 
     public JavaDialectRuntimeData() {
-        this.invokerLookups = new HashMap<String, Object>();
-		this.classLookups = new HashMap<String,byte[]>();
-		this.store = new HashMap<String, byte[]>();        
         this.dirty = false;
     }
 
@@ -105,7 +90,7 @@ public class JavaDialectRuntimeData
      * default methods. The PackageCompilationData holds a reference to the generated bytecode. The generated bytecode must be restored before any Rules.
      */
     public void writeExternal( ObjectOutput stream ) throws IOException {
-        KeyStoreHelper helper = new KeyStoreHelper();
+        KeyStoreHelper helper = KeyStoreHelper.get();
 
         stream.writeBoolean( helper.isSigned() );
         if (helper.isSigned()) {
@@ -116,8 +101,7 @@ public class JavaDialectRuntimeData
         ObjectOutput out = new ObjectOutputStream( bos );
 
         out.writeInt( this.store.size() );
-        for (Entry<String, byte[]> stringEntry : this.store.entrySet()) {
-            Entry entry = (Entry) stringEntry;
+        for (Entry<String, byte[]> entry : this.store.entrySet()) {
             out.writeObject(entry.getKey());
             out.writeObject(entry.getValue());
         }
@@ -132,8 +116,7 @@ public class JavaDialectRuntimeData
         }
 
         stream.writeInt( this.invokerLookups.size() );
-        for (Entry<String, Object> stringObjectEntry : this.invokerLookups.entrySet()) {
-            Entry entry = (Entry) stringObjectEntry;
+        for (Entry<String, Wireable> entry : this.invokerLookups.entrySet()) {
             stream.writeObject(entry.getKey());
             stream.writeObject(entry.getValue());
         }
@@ -146,9 +129,7 @@ public class JavaDialectRuntimeData
 
     }
 
-    private void sign( final ObjectOutput stream,
-            KeyStoreHelper helper,
-            byte[] buff ) {
+    private void sign( final ObjectOutput stream, KeyStoreHelper helper, byte[] buff ) {
         try {
             stream.writeObject( helper.signDataWithPrivateKey( buff ) );
         } catch (Exception e) {
@@ -164,7 +145,7 @@ public class JavaDialectRuntimeData
      */
     public void readExternal( ObjectInput stream ) throws IOException,
             ClassNotFoundException {
-        KeyStoreHelper helper = new KeyStoreHelper();
+        KeyStoreHelper helper = KeyStoreHelper.get();
         boolean signed = stream.readBoolean();
         if (helper.isSigned() != signed) {
             throw new RuntimeException( "This environment is configured to work with " +
@@ -198,7 +179,7 @@ public class JavaDialectRuntimeData
 
         for (int i = 0, length = stream.readInt(); i < length; i++) {
             this.invokerLookups.put( (String) stream.readObject(),
-                                     stream.readObject() );
+                                     (Wireable) stream.readObject() );
         }
 
         for (int i = 0, length = stream.readInt(); i < length; i++) {
@@ -255,7 +236,7 @@ public class JavaDialectRuntimeData
                 // wire all remaining resources
                 int wireListSize = this.wireList.size();
                 if (wireListSize < 100) {
-                    wireAll(classLoader, getInvokers(), this.wireList);
+                    wireAll(classLoader, invokerLookups, this.wireList);
                 } else {
                     wireInParallel(wireListSize);
                 }
@@ -274,14 +255,14 @@ public class JavaDialectRuntimeData
         int size = wireListSize / parallelThread;
         for (int i = 1; i <= parallelThread; i++) {
             List<String> subList = wireList.subList((i-1) * size, i == parallelThread ? wireListSize : i * size);
-            ecs.submit(new WiringExecutor(classLoader, getInvokers(), subList));
+            ecs.submit(new WiringExecutor(classLoader, invokerLookups, subList));
         }
         for (int i = 1; i <= parallelThread; i++) {
             ecs.take().get();
         }
     }
 
-    private static void wireAll(ClassLoader classLoader, Map<String, Object> invokerLookups, List<String> wireList) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
+    private static void wireAll(ClassLoader classLoader, Map<String, Wireable> invokerLookups, List<String> wireList) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
         for (String resourceName : wireList) {
             wire( classLoader, invokerLookups, convertResourceToClassName( resourceName ) );
         }
@@ -289,10 +270,10 @@ public class JavaDialectRuntimeData
 
     private static class WiringExecutor implements Callable<Boolean> {
         private final ClassLoader classLoader;
-        private final Map<String, Object> invokerLookups;
+        private final Map<String, Wireable> invokerLookups;
         private final List<String> wireList;
 
-        private WiringExecutor(ClassLoader classLoader, Map<String, Object> invokerLookups, List<String> wireList) {
+        private WiringExecutor(ClassLoader classLoader, Map<String, Wireable> invokerLookups, List<String> wireList) {
             this.classLoader = classLoader;
             this.invokerLookups = invokerLookups;
             this.wireList = wireList;
@@ -332,33 +313,18 @@ public class JavaDialectRuntimeData
 
         // First update the binary files
         // @todo: this probably has issues if you add classes in the incorrect order - functions, rules, invokers.
-        for (String resourceName : newJavaData.list()) {
-            if ( ! excludeClasses || ! newJavaData.getClassDefinitions().containsKey( resourceName ) ) {
+        for (String resourceName : newJavaData.getStore().keySet()) {
+            if ( ! excludeClasses || ! newJavaData.classLookups.containsKey( resourceName ) ) {
                 write( resourceName,
                        newJavaData.read( resourceName ) );
             }
-            //            // no need to wire, as we already know this is done in a merge
-            //            if ( getStore().put( resourceName,
-            //                                 newJavaData.read( resourceName ) ) != null ) {
-            //                // we are updating an existing class so reload();
-            //                this.dirty = true;
-            //            }
-            //            if ( this.dirty == false ) {
-            //                // only build up the wireList if we aren't going to reload
-            //                this.wireList.add( resourceName );
-            //            }
         }
 
-        //        if ( this.dirty ) {
-        //            // no need to keep wireList if we are going to reload;
-        //            this.wireList.clear();
-        //        }
-
         // Add invokers
-        putAllInvokers( newJavaData.getInvokers() );
+        putAllInvokers( newJavaData.invokerLookups );
 
         if ( ! excludeClasses ) {
-            putAllClassDefinitions( newJavaData.getClassDefinitions() );
+            putAllClassDefinitions( newJavaData.classLookups );
         }
 
     }
@@ -372,9 +338,6 @@ public class JavaDialectRuntimeData
     }
 
     public Map<String, byte[]> getStore() {
-        if (store == null) {
-            store = new HashMap<String, byte[]>();
-        }
         return store;
     }
 
@@ -383,7 +346,7 @@ public class JavaDialectRuntimeData
         if (store != null) {
             bytecode = store.get(resourceName);
         }
-        if (bytecode == null && rootClassLoader instanceof ProjectClassLoader) {
+        if (bytecode == null && rootClassLoader instanceof ProjectClassLoader ) {
             bytecode = ((ProjectClassLoader)rootClassLoader).getBytecode(resourceName);
         }
         return bytecode;
@@ -426,8 +389,6 @@ public class JavaDialectRuntimeData
             for (final Object object : group.getChildren()) {
                 if (object instanceof ConditionalElement) {
                     removeClasses((ConditionalElement) object);
-                } else if (object instanceof Pattern) {
-                    removeClasses((Pattern) object);
                 }
             }
         } else if (ce instanceof EvalCondition) {
@@ -435,24 +396,11 @@ public class JavaDialectRuntimeData
         }
     }
 
-    private void removeClasses( final Pattern pattern ) {
-        for (final Constraint object : pattern.getConstraints()) {
-            if (object instanceof PredicateConstraint) {
-                remove(((PredicateConstraint) object).getPredicateExpression().getClass().getName());
-            }
-        }
-    }
-
     public byte[] read( final String resourceName ) {
-        byte[] bytes = null;
-
-        if (!getStore().isEmpty()) {
-            bytes = getStore().get( resourceName );
-        }
-        return bytes;
+        return getStore().get( resourceName );
     }
 
-    public void write( String resourceName, byte[] clazzData ) {
+    public synchronized void write( String resourceName, byte[] clazzData ) {
         if (getStore().put( resourceName,
                             clazzData ) != null) {
             this.dirty = true;
@@ -463,42 +411,38 @@ public class JavaDialectRuntimeData
         } else if (!this.dirty) {
             try {
                 if (this.wireList == Collections.<String> emptyList()) {
-                    this.wireList = new ArrayList<String>();
+                    this.wireList = new ArrayList<>();
                 }
                 this.wireList.add( resourceName );
             } catch (final Exception e) {
-                e.printStackTrace();
+                LOG.error("Exception", e);
                 throw new RuntimeException( e );
             }
         }
     }
 
-    public void wire( final String className ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
-        wire(className, getInvokers().get(className));
+    private static void wire( ClassLoader classLoader, Map<String, Wireable> invokerLookups, String className ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
+        Wireable invoker = invokerLookups.get(className);
+        if (invoker != null) {
+            wire( classLoader, className, invoker, false );
+        }
     }
 
-    private static void wire( ClassLoader classLoader, Map<String, Object> invokerLookups, String className ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
-        wire( classLoader, className, invokerLookups.get(className) );
-    }
+    private static void wire( ClassLoader classLoader, String className, Wireable invoker, boolean reload ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
+        if (reload && invoker instanceof Wireable.Immutable && (( Wireable.Immutable ) invoker).isInitialized()) {
+            return;
+        }
 
-    public void wire( final String className, final Object invoker ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
-        wire( classLoader, className, invoker );
-    }
-
-    private static void wire( ClassLoader classLoader, String className, Object invoker ) throws ClassNotFoundException, InstantiationException, IllegalAccessException {
         final Class clazz = classLoader.loadClass( className );
-
         if (clazz != null) {
-            if (invoker instanceof Wireable) {
-                ( (Wireable) invoker ).wire( clazz.newInstance() );
-            }
+            invoker.wire( clazz.newInstance() );
         } else {
             throw new ClassNotFoundException( className );
         }
     }
 
     public boolean remove( final String resourceName ) {
-        getInvokers().remove( resourceName );
+        invokerLookups.remove( resourceName );
         if (getStore().remove( convertClassToResourcePath( resourceName ) ) != null) {
             this.wireList.remove( resourceName );
             // we need to make sure the class is removed from the classLoader
@@ -507,16 +451,6 @@ public class JavaDialectRuntimeData
             return true;
         }
         return false;
-    }
-
-    public String[] list() {
-        String[] names = new String[getStore().size()];
-        int i = 0;
-
-        for (String string : getStore().keySet()) {
-            names[i++] = string;
-        }
-        return names;
     }
 
     /**
@@ -528,10 +462,8 @@ public class JavaDialectRuntimeData
 
         // Wire up invokers
         try {
-            for (final Object object : getInvokers().entrySet()) {
-                Entry entry = (Entry) object;
-                wire( (String) entry.getKey(),
-                      entry.getValue() );
+            for (Entry<String, Wireable> entry : invokerLookups.entrySet()) {
+                wire( classLoader, entry.getKey(), entry.getValue(), true );
             }
         } catch (final ClassNotFoundException e) {
             throw new RuntimeException( e );
@@ -546,193 +478,33 @@ public class JavaDialectRuntimeData
         this.dirty = false;
     }
 
-    public void clear() {
-        getStore().clear();
-        getInvokers().clear();
-        reload();
-    }
-
     public String toString() {
         return this.getClass().getName() + getStore().toString();
     }
 
-    public void putInvoker( final String className,
-            final Object invoker ) {
-        getInvokers().put(className,
-                          invoker);
+    public void putInvoker( String className, Wireable invoker ) {
+        invokerLookups.put(className, invoker);
     }
 
-    public void putAllInvokers( final Map<String, Object> invokers ) {
-        getInvokers().putAll( invokers );
-
+    public void putAllInvokers( final Map<String, Wireable> invokers ) {
+        invokerLookups.putAll( invokers );
     }
 
-    public Map<String, Object> getInvokers() {
-        if (this.invokerLookups == null) {
-            this.invokerLookups = new HashMap<String, Object>();
-        }
-        return this.invokerLookups;
-    }
-
-    public void removeInvoker( final String className ) {
-        getInvokers().remove(className);
-    }
-
-
-
-    public void putClassDefinition( final String className,
-                                    final byte[] classDef ) {
-        getClassDefinitions().put( className,
-                                   classDef );
+    public void putClassDefinition( final String className, final byte[] classDef ) {
+        classLookups.put( className, classDef );
     }
 
     public void putAllClassDefinitions( final Map classDefinitions ) {
-        getClassDefinitions().putAll(classDefinitions);
-    }
-
-    public Map<String, byte[]> getClassDefinitions() {
-        if (this.classLookups == null) {
-            this.classLookups = new HashMap<String, byte[]>();
-        }
-        return this.classLookups;
+        classLookups.putAll(classDefinitions);
     }
 
     public byte[] getClassDefinition( String className ) {
-        if (this.classLookups == null) {
-            this.classLookups = new HashMap<String, byte[]>();
-        }
-        byte[] classDef = this.classLookups.get( className );
-        if (classDef == null && rootClassLoader instanceof ProjectClassLoader) {
-            classDef = ((ProjectClassLoader)rootClassLoader).getBytecode(className);
-            classLookups.put( className, classDef );
-        }
-        return classDef;
-    }
-
-    public void removeClassDefinition( final String className ) {
-        getClassDefinitions().remove( className );
+        return this.classLookups.computeIfAbsent( className, name -> rootClassLoader instanceof ProjectClassLoader ?
+                                                                     ((ProjectClassLoader)rootClassLoader).getBytecode(name) :
+                                                                     null);
     }
 
     private ClassLoader makeClassLoader() {
-        return ClassUtils.isAndroid() ?
-                (ClassLoader) ClassUtils.instantiateObject(
-                        "org.drools.android.DexPackageClassLoader", null, this, this.rootClassLoader)
-                : new PackageClassLoader( this, this.rootClassLoader );
-    }
-
-    /**
-     * This is an Internal Drools Class
-     */
-    public static class PackageClassLoader extends ClassLoader implements FastClassLoader {
-
-        private final ConcurrentHashMap<String, Object> parallelLockMap = new ConcurrentHashMap<String, Object>();
-
-        protected JavaDialectRuntimeData store;
-
-        private Set<String> existingPackages = new ConcurrentSkipListSet<String>();
-
-        public PackageClassLoader( JavaDialectRuntimeData store,
-                                   ClassLoader rootClassLoader ) {
-            super( rootClassLoader );
-            this.store = store;
-        }
-
-        public Class<?> loadClass( final String name,
-                                   final boolean resolve ) throws ClassNotFoundException {
-            Class<?> cls = fastFindClass( name );
-
-            if (cls == null) {
-                ClassLoader parent = getParent();
-                cls = parent.loadClass( name );
-            }
-
-            if (cls == null) {
-                throw new ClassNotFoundException( "Unable to load class: " + name );
-            }
-
-            return cls;
-        }
-
-        public Class<?> fastFindClass( final String name ) {
-            Class<?> cls = findLoadedClass( name );
-
-            if (cls == null) {
-                Object lock = getLockObject(name);
-                synchronized (lock) {
-                    cls = findLoadedClass( name );
-                    if (cls == null) {
-                        try {
-                            cls = internalDefineClass( name, this.store.read( convertClassToResourcePath( name ) ) );
-                        } finally {
-                            releaseLockObject( name );
-                        }
-                    }
-                }
-            }
-
-            return cls;
-        }
-
-        private Class<?> internalDefineClass( String name, byte[] clazzBytes ) {
-            if ( clazzBytes == null ) {
-                return null;
-            }
-            String pkgName = name.substring( 0,
-                                             name.lastIndexOf( '.' ) );
-
-            if ( !existingPackages.contains( pkgName ) ) {
-                synchronized (this) {
-                    if ( getPackage( pkgName ) == null ) {
-                        definePackage( pkgName,
-                                       "", "", "", "", "", "",
-                                       null );
-                    }
-                    existingPackages.add( pkgName );
-                }
-            }
-
-            Class<?> cls = defineClass( name,
-                                        clazzBytes,
-                                        0,
-                                        clazzBytes.length,
-                                        PROTECTION_DOMAIN );
-            resolveClass( cls );
-            return cls;
-        }
-
-        public InputStream getResourceAsStream( final String name ) {
-            final byte[] clsBytes = this.store.read( name );
-            if (clsBytes != null) {
-                return new ByteArrayInputStream( clsBytes );
-            }
-            return null;
-        }
-
-        public URL getResource( String name ) {
-            return null;
-        }
-
-        public Enumeration<URL> getResources( String name ) throws IOException {
-            return new Enumeration<URL>() {
-
-                public boolean hasMoreElements() {
-                    return false;
-                }
-
-                public URL nextElement() {
-                    throw new NoSuchElementException();
-                }
-            };
-        }
-
-        private Object getLockObject(String className) {
-            Object newLock = new Object();
-            Object lock = parallelLockMap.putIfAbsent(className, newLock);
-            return lock != null ? lock : newLock;
-        }
-
-        private void releaseLockObject(String className) {
-            parallelLockMap.remove( className );
-        }
+        return ComponentsFactory.createPackageClassLoader(this.store, this.rootClassLoader);
     }
 }

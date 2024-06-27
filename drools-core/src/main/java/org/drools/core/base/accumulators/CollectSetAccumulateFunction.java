@@ -1,19 +1,21 @@
-/*
- * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.base.accumulators;
 
 import java.io.Externalizable;
@@ -25,8 +27,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-
-import org.kie.api.runtime.rule.AccumulateFunction;
 
 /**
  * <p>An implementation of an accumulator capable of collecting sets of values.
@@ -48,9 +48,7 @@ import org.kie.api.runtime.rule.AccumulateFunction;
  * <p>The set obviously does not computes duplications and the order of the elements in the set is not
  * guaranteed.</p>
  */
-public class CollectSetAccumulateFunction
-    implements
-    AccumulateFunction {
+public class CollectSetAccumulateFunction extends AbstractAccumulateFunction<CollectSetAccumulateFunction.CollectListData> {
 
     public void readExternal(ObjectInput in) throws IOException,
                                             ClassNotFoundException {
@@ -64,7 +62,7 @@ public class CollectSetAccumulateFunction
     public static class CollectListData
         implements
         Externalizable {
-        public Map< Object, MutableInt > map = new HashMap<Object, MutableInt>();
+        public Map< Object, MutableInt > map = new HashMap<>();
 
         public CollectListData() {
         }
@@ -89,24 +87,22 @@ public class CollectSetAccumulateFunction
     /* (non-Javadoc)
      * @see org.kie.base.accumulators.AccumulateFunction#createContext()
      */
-    public Serializable createContext() {
+    public CollectListData createContext() {
         return new CollectListData();
     }
 
     /* (non-Javadoc)
      * @see org.kie.base.accumulators.AccumulateFunction#init(java.lang.Object)
      */
-    public void init(Serializable context) throws Exception {
-        CollectListData data = (CollectListData) context;
+    public void init(CollectListData data) {
         data.map.clear();
     }
 
     /* (non-Javadoc)
      * @see org.kie.base.accumulators.AccumulateFunction#accumulate(java.lang.Object, java.lang.Object)
      */
-    public void accumulate(Serializable context,
+    public void accumulate(CollectListData data,
                            Object value) {
-        CollectListData data = (CollectListData) context;
         CollectListData.MutableInt counter = data.map.get( value );
         if( counter == null ) {
             counter = new CollectListData.MutableInt();
@@ -118,9 +114,8 @@ public class CollectSetAccumulateFunction
     /* (non-Javadoc)
      * @see org.kie.base.accumulators.AccumulateFunction#reverse(java.lang.Object, java.lang.Object)
      */
-    public void reverse(Serializable context,
-                        Object value) throws Exception {
-        CollectListData data = (CollectListData) context;
+    public void reverse(CollectListData data,
+                        Object value) {
         CollectListData.MutableInt counter = data.map.get( value );
         if( (--counter.value) == 0 ) {
             data.map.remove( value );
@@ -130,8 +125,7 @@ public class CollectSetAccumulateFunction
     /* (non-Javadoc)
      * @see org.kie.base.accumulators.AccumulateFunction#getResult(java.lang.Object)
      */
-    public Object getResult(Serializable context) throws Exception {
-        CollectListData data = (CollectListData) context;
+    public Object getResult(CollectListData data) {
         return Collections.unmodifiableSet( data.map.keySet() );
     }
 

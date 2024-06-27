@@ -1,36 +1,39 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.beliefs.bayes;
 
 import junit.framework.AssertionFailedError;
 
 import org.drools.beliefs.graph.Graph;
 import org.drools.beliefs.graph.GraphNode;
-import org.drools.core.util.bitmask.OpenBitSet;
+import org.drools.util.bitmask.OpenBitSet;
 import org.junit.Test;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.drools.beliefs.bayes.GraphTest.addNode;
 import static org.drools.beliefs.bayes.GraphTest.bitSet;
 import static org.drools.beliefs.bayes.GraphTest.connectParentToChildren;
 import static org.drools.beliefs.bayes.PotentialMultiplier.indexToKey;
 import static org.drools.beliefs.bayes.PotentialMultiplier.keyToIndex;
-import static org.junit.Assert.assertEquals;
 
 public class JunctionTreeTest {
 
@@ -44,7 +47,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] indexMultipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 4, numberOfStates );
+        assertThat(numberOfStates).isEqualTo(4);
         assertIndexToKeyMapping(numberOfStates, indexMultipliers);
     }
 
@@ -58,7 +61,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] indexMultipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 9, numberOfStates );
+        assertThat(numberOfStates).isEqualTo(9);
         assertIndexToKeyMapping(numberOfStates, indexMultipliers);
     }
 
@@ -74,7 +77,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] indexMultipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 108, numberOfStates);
+        assertThat(numberOfStates).isEqualTo(108);
         assertIndexToKeyMapping(numberOfStates, indexMultipliers);
     }
 
@@ -89,7 +92,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] multipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 4, numberOfStates);
+        assertThat(numberOfStates).isEqualTo(4);
         assertIndexToKeyMapping(numberOfStates, multipliers);
 
         double[] potentials = new double[numberOfStates];
@@ -126,7 +129,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] multipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 16, numberOfStates);
+        assertThat(numberOfStates).isEqualTo(16);
         assertIndexToKeyMapping(numberOfStates, multipliers);
 
         double[] potentials = new double[numberOfStates];
@@ -162,7 +165,7 @@ public class JunctionTreeTest {
         int numberOfStates = PotentialMultiplier.createNumberOfStates(vars);
         int[] multipliers = PotentialMultiplier.createIndexMultipliers(vars, numberOfStates);
 
-        assertEquals( 16, numberOfStates);
+        assertThat(numberOfStates).isEqualTo(16);
         assertIndexToKeyMapping(numberOfStates, multipliers);
 
         double[] potentials = new double[numberOfStates];
@@ -235,12 +238,12 @@ public class JunctionTreeTest {
             for ( int i = 0; i <expected.length; i++ ) {
                 System.err.format("%.7f ", expected[i]);
             }
-            System.err.println("");
+            System.err.println();
             System.err.print( "actual " );
             for ( int i = 0; i <actual.length; i++ ) {
                 System.err.format("%.7f ", actual[i]);
             }
-            System.err.println("");
+            System.err.println();
             throw new AssertionFailedError("Arrays are not Equal");
         }
     }
@@ -250,7 +253,7 @@ public class JunctionTreeTest {
         for (int i = 0; i < numberOfStates; i++) {
             int[] key = indexToKey(i, indexMultipliers);
             int index = keyToIndex(key, indexMultipliers);
-            assertEquals(i, index);
+            assertThat(index).isEqualTo(i);
         }
     }
 

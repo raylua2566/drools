@@ -1,19 +1,21 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.template.model;
 
 import java.util.LinkedList;
@@ -25,7 +27,7 @@ import java.util.List;
 public class Rule extends AttributedDRLElement
         implements DRLJavaEmitter {
 
-    private static final int MAX_ROWS = 65535;
+    public static final int MAX_ROWS = 65535;
 
     private String _name;
     private String _description;
@@ -51,9 +53,9 @@ public class Rule extends AttributedDRLElement
         super(salience);
         this._name = asStringLiteral(name);
         this._description = null;
-        this._metadata = new LinkedList<String>();
-        this._lhs = new LinkedList<Condition>();
-        this._rhs = new LinkedList<Consequence>();
+        this._metadata = new LinkedList<>();
+        this._lhs = new LinkedList<>();
+        this._rhs = new LinkedList<>();
         this._spreadsheetRow = spreadsheetRow;
     }
 
@@ -75,7 +77,7 @@ public class Rule extends AttributedDRLElement
         }
         out.writeLine("rule " + this._name);
         if (this._description != null) {
-            out.writeLine("\t// " + this._description);
+            out.writeLine("/* " + this._description + " */");
         }
 
         // metadata
@@ -98,13 +100,6 @@ public class Rule extends AttributedDRLElement
         for (DRLJavaEmitter item : list) {
             item.renderDRL(out);
         }
-    }
-
-    public static int calcSalience(final int rowNumber) {
-        if (rowNumber > Rule.MAX_ROWS) {
-            throw new IllegalArgumentException("That row number is above the max: " + Rule.MAX_ROWS);
-        }
-        return Rule.MAX_ROWS - rowNumber;
     }
 
     public List<String> getMetadata() {

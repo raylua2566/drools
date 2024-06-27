@@ -1,46 +1,49 @@
-/*
- * Copyright 2007 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.reteoo;
 
-import org.drools.core.base.ClassObjectType;
-import org.drools.core.common.EventFactHandle;
-import org.drools.core.common.InternalFactHandle;
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.InternalWorkingMemoryEntryPoint;
-import org.drools.core.common.PropagationContextFactory;
-import org.drools.core.common.RuleBasePartitionId;
-import org.drools.core.phreak.PropagationEntry;
-import org.drools.core.reteoo.LeftInputAdapterNode.LiaNodeMemory;
-import org.drools.core.reteoo.builder.BuildContext;
-import org.drools.core.rule.EntryPointId;
-import org.drools.core.spi.ObjectType;
-import org.drools.core.spi.PropagationContext;
-import org.drools.core.util.bitmask.BitMask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import org.drools.base.base.ClassObjectType;
+import org.drools.base.base.ObjectType;
+import org.drools.base.common.NetworkNode;
+import org.drools.base.common.RuleBasePartitionId;
+import org.drools.base.reteoo.NodeTypeEnums;
+import org.drools.base.rule.EntryPointId;
+import org.drools.base.rule.Pattern;
+import org.drools.core.WorkingMemoryEntryPoint;
+import org.drools.core.common.BaseNode;
+import org.drools.core.common.DefaultEventHandle;
+import org.drools.core.common.InternalFactHandle;
+import org.drools.core.common.InternalWorkingMemory;
+import org.drools.core.common.ObjectTypeConfigurationRegistry;
+import org.drools.core.common.PropagationContext;
+import org.drools.core.common.ReteEvaluator;
+import org.drools.core.impl.InternalRuleBase;
+import org.drools.core.phreak.PropagationEntry;
+import org.drools.core.reteoo.builder.BuildContext;
+import org.drools.util.bitmask.BitMask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A node that is an entry point into the Rete network.
@@ -53,13 +56,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @see ObjectTypeNode
  */
-public class EntryPointNode extends ObjectSource
-    implements
-    Externalizable,
-    ObjectSink {
-    // ------------------------------------------------------------
-    // Instance members
-    // ------------------------------------------------------------
+public class EntryPointNode extends ObjectSource implements ObjectSink {
+
 
     private static final long               serialVersionUID = 510l;
 
@@ -79,6 +77,10 @@ public class EntryPointNode extends ObjectSource
 
     private ObjectTypeNode activationNode;
 
+    private ObjectTypeConfigurationRegistry typeConfReg;
+
+    private boolean parallelExecution = false;
+
     // ------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------
@@ -91,44 +93,39 @@ public class EntryPointNode extends ObjectSource
                           final BuildContext context) {
         this( id,
               context.getPartitionId(),
-              context.getKnowledgeBase().getConfiguration().isMultithreadEvaluation(),
               objectSource,
               context.getCurrentEntryPoint() ); // irrelevant for this node, since it overrides sink management
     }
 
     public EntryPointNode(final int id,
                           final RuleBasePartitionId partitionId,
-                          final boolean partitionsEnabled,
                           final ObjectSource objectSource,
                           final EntryPointId entryPoint) {
         super( id,
                partitionId,
-               partitionsEnabled,
                objectSource,
-               999 ); // irrelevant for this node, since it overrides sink management
+               999,
+               999); // irrelevant for this node, since it overrides sink management
         this.entryPoint = entryPoint;
-        this.objectTypeNodes = new ConcurrentHashMap<ObjectType, ObjectTypeNode>();
+        this.objectTypeNodes = new ConcurrentHashMap<>();
+
+        hashcode = calculateHashCode();
+        typeConfReg = new ObjectTypeConfigurationRegistry( objectSource.getRuleBase() );
     }
 
     // ------------------------------------------------------------
     // Instance methods
     // ------------------------------------------------------------
 
-    @SuppressWarnings("unchecked")
-    public void readExternal(ObjectInput in) throws IOException,
-                                            ClassNotFoundException {
-        super.readExternal( in );
-        entryPoint = (EntryPointId) in.readObject();
-        objectTypeNodes = (Map<ObjectType, ObjectTypeNode>) in.readObject();
+    public void setupParallelExecution(InternalRuleBase kbase) {
+        parallelExecution = true;
     }
 
-    public void writeExternal(ObjectOutput out) throws IOException {
-        super.writeExternal(out);
-        out.writeObject( entryPoint );
-        out.writeObject( objectTypeNodes );
+    public ObjectTypeConfigurationRegistry getTypeConfReg() {
+        return typeConfReg;
     }
 
-    public short getType() {
+    public int getType() {
         return NodeTypeEnums.EntryPointNode;
     }
 
@@ -138,27 +135,6 @@ public class EntryPointNode extends ObjectSource
     public EntryPointId getEntryPoint() {
         return entryPoint;
     }
-    void setEntryPoint(EntryPointId entryPoint) {
-        this.entryPoint = entryPoint;
-    }
-
-    public void assertQuery(final InternalFactHandle factHandle,
-                            final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException("rete only");
-    }
-
-    public void retractQuery(final InternalFactHandle factHandle,
-                            final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException("rete only");
-    }
-
-    public void modifyQuery(final InternalFactHandle factHandle,
-                            final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException("rete only");
-     }
 
     public ObjectTypeNode getQueryNode() {
         if ( queryNode == null ) {
@@ -169,45 +145,43 @@ public class EntryPointNode extends ObjectSource
 
     public void assertActivation(final InternalFactHandle factHandle,
                             final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
+                            final ReteEvaluator reteEvaluator) {
         if ( activationNode == null ) {
             this.activationNode = objectTypeNodes.get( ClassObjectType.Match_ObjectType );
         }
 
         if ( activationNode != null ) {
             // There may be no queries defined
-            this.activationNode.propagateAssert(factHandle, context, workingMemory);
+            this.activationNode.propagateAssert(factHandle, context, reteEvaluator);
         }
     }
 
     public void retractActivation(final InternalFactHandle factHandle,
                             final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
+                            final ReteEvaluator reteEvaluator) {
         if ( activationNode == null ) {
             this.activationNode = objectTypeNodes.get( ClassObjectType.Match_ObjectType );
         }
 
         if ( activationNode != null ) {
             // There may be no queries defined
-            this.activationNode.retractObject(factHandle, context, workingMemory);
+            this.activationNode.retractObject(factHandle, context, reteEvaluator);
         }
     }
 
     public void modifyActivation(final InternalFactHandle factHandle,
                             final PropagationContext context,
-                            final InternalWorkingMemory workingMemory) {
+                            final ReteEvaluator reteEvaluator) {
          if ( activationNode == null ) {
              this.activationNode = objectTypeNodes.get( ClassObjectType.Match_ObjectType );
          }
 
          if ( activationNode != null ) {
-             ModifyPreviousTuples modifyPreviousTuples = new ModifyPreviousTuples(factHandle.getFirstLeftTuple(), factHandle.getFirstRightTuple(), this );
-             factHandle.clearLeftTuples();
-             factHandle.clearRightTuples();
+             ModifyPreviousTuples modifyPreviousTuples = new ModifyPreviousTuples( factHandle.detachLinkedTuples() );
 
              // There may be no queries defined
-             this.activationNode.modifyObject( factHandle, modifyPreviousTuples, context, workingMemory );
-             modifyPreviousTuples.retractTuples(context, workingMemory);
+             this.activationNode.modifyObject( factHandle, modifyPreviousTuples, context, reteEvaluator );
+             modifyPreviousTuples.retractTuples(context, reteEvaluator);
          }
 
      }
@@ -215,91 +189,75 @@ public class EntryPointNode extends ObjectSource
     public void assertObject(final InternalFactHandle handle,
                              final PropagationContext context,
                              final ObjectTypeConf objectTypeConf,
-                             final InternalWorkingMemory workingMemory) {
+                             final ReteEvaluator reteEvaluator) {
         if ( log.isTraceEnabled() ) {
             log.trace("Insert {}", handle.toString());
         }
 
-        workingMemory.addPropagation(new PropagationEntry.Insert(handle, context, workingMemory, objectTypeConf ));
+        if ( parallelExecution || !reteEvaluator.isThreadSafe() ) {
+            // In case of parallel execution the CompositePartitionAwareObjectSinkAdapter
+            // used by the OTNs will take care of enqueueing this insertion on the propagation queues
+            // of the different agendas
+            PropagationEntry.Insert.execute( handle, context, reteEvaluator, objectTypeConf );
+        } else {
+            reteEvaluator.addPropagation( new PropagationEntry.Insert( handle, context, reteEvaluator, objectTypeConf ) );
+        }
     }
 
 
     public void modifyObject(final InternalFactHandle handle,
                              final PropagationContext pctx,
                              final ObjectTypeConf objectTypeConf,
-                             final InternalWorkingMemory workingMemory) {
+                             final ReteEvaluator reteEvaluator) {
         if ( log.isTraceEnabled() ) {
             log.trace( "Update {}", handle.toString()  );
         }
 
-        workingMemory.addPropagation(new PropagationEntry.Update(this, handle, pctx, objectTypeConf));
+        if (reteEvaluator.isThreadSafe()) {
+            reteEvaluator.addPropagation( new PropagationEntry.Update( handle, pctx, objectTypeConf ) );
+        } else {
+            PropagationEntry.Update.execute( handle, pctx, objectTypeConf, reteEvaluator );
+        }
     }
 
-    public void propagateModify(InternalFactHandle handle, PropagationContext pctx, ObjectTypeConf objectTypeConf, InternalWorkingMemory wm) {
-        ObjectTypeNode[] cachedNodes = objectTypeConf.getObjectTypeNodes();
+    public static void removeRightTuplesMatchingOTN( PropagationContext pctx, ReteEvaluator reteEvaluator, ModifyPreviousTuples modifyPreviousTuples, ObjectTypeNode node, int partition ) {
+        // remove any right tuples that matches the current OTN before continue the modify on the next OTN cache entry
+        TupleImpl rightTuple = modifyPreviousTuples.peekRightTuple(partition);
+        while ( rightTuple != null &&
+                ((BaseNode) rightTuple.getSink()).getObjectTypeNode() == node ) {
+            modifyPreviousTuples.removeRightTuple(partition);
 
-        // make a reference to the previous tuples, then null then on the handle
-        ModifyPreviousTuples modifyPreviousTuples = new ModifyPreviousTuples(handle.getFirstLeftTuple(), handle.getFirstRightTuple(), this );
-        handle.clearLeftTuples();
-        handle.clearRightTuples();
+            modifyPreviousTuples.doRightDelete(pctx, reteEvaluator, rightTuple);
 
-        for ( int i = 0, length = cachedNodes.length; i < length; i++ ) {
-            cachedNodes[i].modifyObject( handle,
-                                         modifyPreviousTuples,
-                                         pctx, wm );
-
-            // remove any right tuples that matches the current OTN before continue the modify on the next OTN cache entry
-            if (i < cachedNodes.length - 1) {
-                RightTuple rightTuple = modifyPreviousTuples.peekRightTuple();
-                while ( rightTuple != null &&
-                        ((BetaNode) rightTuple.getTupleSink()).getObjectTypeNode() == cachedNodes[i] ) {
-                    modifyPreviousTuples.removeRightTuple();
-
-                    doRightDelete(pctx, wm, rightTuple);
-
-                    rightTuple = modifyPreviousTuples.peekRightTuple();
-                }
+            rightTuple = modifyPreviousTuples.peekRightTuple(partition);
+        }
 
 
-                LeftTuple leftTuple;
-                ObjectTypeNode otn;
-                while ( true ) {
-                    leftTuple = modifyPreviousTuples.peekLeftTuple();
-                    otn = null;
-                    if (leftTuple != null) {
-                        LeftTupleSink leftTupleSink = leftTuple.getTupleSink();
-                        if (leftTupleSink instanceof LeftTupleSource) {
-                            otn = leftTupleSink.getLeftTupleSource().getObjectTypeNode();
-                        } else if (leftTupleSink instanceof RuleTerminalNode) {
-                            otn = ((RuleTerminalNode)leftTupleSink).getObjectTypeNode();
-                        }
-                    }
-
-                    if ( otn == null || cachedNodes[i] != otn ) break;
-
-                    modifyPreviousTuples.removeLeftTuple();
-                    doDeleteObject(pctx, wm, leftTuple);
+        while ( true ) {
+            TupleImpl      leftTuple = modifyPreviousTuples.peekLeftTuple(partition);
+            ObjectTypeNode otn       = null;
+            if (leftTuple != null) {
+                Sink leftTupleSink = leftTuple.getSink();
+                if (NodeTypeEnums.isTerminalNode(leftTupleSink)) {
+                    otn = ((RuleTerminalNode)leftTupleSink).getObjectTypeNode();
+                } else {
+                    otn = ((LeftTupleSource)leftTupleSink).getLeftTupleSource().getObjectTypeNode();
                 }
             }
+
+            if ( otn == node ) {
+                modifyPreviousTuples.removeLeftTuple(partition);
+                modifyPreviousTuples.doDeleteObject( pctx, reteEvaluator, leftTuple );
+            } else {
+                break;
+            }
         }
-        modifyPreviousTuples.retractTuples(pctx, wm);
-    }
-
-    public void doDeleteObject(PropagationContext pctx, InternalWorkingMemory wm, LeftTuple leftTuple) {
-        LeftInputAdapterNode liaNode = leftTuple.getTupleSource();
-        LiaNodeMemory lm = wm.getNodeMemory( liaNode );
-        LeftInputAdapterNode.doDeleteObject(leftTuple, pctx, lm.getSegmentMemory(), wm, liaNode, true, lm);
-    }
-
-    public void doRightDelete(PropagationContext pctx, InternalWorkingMemory wm, RightTuple rightTuple) {
-        rightTuple.setPropagationContext( pctx );
-        rightTuple.retractTuple( pctx, wm );
     }
 
     public void modifyObject(InternalFactHandle factHandle,
                                    ModifyPreviousTuples modifyPreviousTuples,
                                    PropagationContext context,
-                                   InternalWorkingMemory workingMemory) {
+                                   ReteEvaluator reteEvaluator) {
         // this method was silently failing, so I am now throwing an exception to make
         // sure no one calls it by mistake
         throw new UnsupportedOperationException( "This method should NEVER EVER be called" );
@@ -314,12 +272,12 @@ public class EntryPointNode extends ObjectSource
      *            The FactHandle of the fact to assert
      * @param context
      *            The <code>PropagationContext</code> of the <code>WorkingMemory</code> action
-     * @param workingMemory
+     * @param reteEvaluator
      *            The working memory session.
      */
     public void assertObject(final InternalFactHandle factHandle,
                              final PropagationContext context,
-                             final InternalWorkingMemory workingMemory) {
+                             final ReteEvaluator reteEvaluator) {
         // this method was silently failing, so I am now throwing an exception to make
         // sure no one calls it by mistake
         throw new UnsupportedOperationException( "This method should NEVER EVER be called" );
@@ -331,21 +289,28 @@ public class EntryPointNode extends ObjectSource
      *
      * @param handle
      *            The handle of the fact to retract.
-     * @param workingMemory
+     * @param reteEvaluator
      *            The working memory session.
      */
-    public void retractObject(final InternalFactHandle handle,
-                              final PropagationContext context,
-                              final ObjectTypeConf objectTypeConf,
-                              final InternalWorkingMemory workingMemory) {
+    public void retractObject(InternalFactHandle handle, PropagationContext context,
+                              ObjectTypeConf objectTypeConf, ReteEvaluator reteEvaluator) {
         if ( log.isTraceEnabled() ) {
             log.trace( "Delete {}", handle.toString()  );
         }
 
-        workingMemory.addPropagation(new PropagationEntry.Delete(this, handle, context, objectTypeConf));
+        reteEvaluator.addPropagation(new PropagationEntry.Delete(this, handle, context, objectTypeConf));
     }
 
-    public void propagateRetract(InternalFactHandle handle, PropagationContext context, ObjectTypeConf objectTypeConf, InternalWorkingMemory workingMemory) {
+    public void immediateDeleteObject(InternalFactHandle handle, PropagationContext context,
+                                      ObjectTypeConf objectTypeConf, ReteEvaluator reteEvaluator) {
+        if ( log.isTraceEnabled() ) {
+            log.trace( "Delete {}", handle.toString()  );
+        }
+
+        PropagationEntry.Delete.execute(reteEvaluator, this, handle, context, objectTypeConf);
+    }
+
+    public void propagateRetract(InternalFactHandle handle, PropagationContext context, ObjectTypeConf objectTypeConf, ReteEvaluator reteEvaluator) {
         ObjectTypeNode[] cachedNodes = objectTypeConf.getObjectTypeNodes();
 
         if ( cachedNodes == null ) {
@@ -356,11 +321,11 @@ public class EntryPointNode extends ObjectSource
         for ( ObjectTypeNode cachedNode : cachedNodes ) {
             cachedNode.retractObject( handle,
                                       context,
-                                      workingMemory );
+                                      reteEvaluator );
         }
 
-        if (handle instanceof EventFactHandle) {
-            ((EventFactHandle) handle).unscheduleAllJobs(workingMemory);
+        if (handle.isEvent()) {
+            ((DefaultEventHandle) handle).unscheduleAllJobs(reteEvaluator);
         }
     }
 
@@ -379,41 +344,31 @@ public class EntryPointNode extends ObjectSource
                                  node);
     }
 
-    public boolean removeObjectSink(final ObjectSink objectSink) {
+    public void removeObjectSink(final ObjectSink objectSink) {
         final ObjectTypeNode node = (ObjectTypeNode) objectSink;
         this.objectTypeNodes.remove( node.getObjectType() );
-        return false;
+    }
+
+    public void removeObjectType(ObjectType objectType) {
+        this.objectTypeNodes.remove( objectType );
     }
 
     public void attach() {
-        attach(null);
+        doAttach(null);
     }
 
-    public void attach( BuildContext context ) {
+    public void doAttach( BuildContext context ) {
+        super.doAttach(context);
         this.source.addObjectSink( this );
-        if (context == null ) {
-            return;
-        }
-        if ( context.getKnowledgeBase().getConfiguration().isPhreakEnabled() ) {
+        if (context != null ) {
             for ( InternalWorkingMemory workingMemory : context.getWorkingMemories() ) {
                 workingMemory.updateEntryPointsCache();
             }
-            return;
-        }
-
-        for ( InternalWorkingMemory workingMemory : context.getWorkingMemories() ) {
-            workingMemory.updateEntryPointsCache();
-            PropagationContextFactory pctxFactory = workingMemory.getKnowledgeBase().getConfiguration().getComponentFactory().getPropagationContextFactory();
-            final PropagationContext propagationContext = pctxFactory.createPropagationContext(workingMemory.getNextPropagationIdCounter(), PropagationContext.RULE_ADDITION, null, null, null);
-            this.source.updateSink( this,
-                                    propagationContext,
-                                    workingMemory );
         }
     }
 
     protected boolean doRemove(final RuleRemovalContext context,
-                               final ReteooBuilder builder,
-                               final InternalWorkingMemory[] workingMemories) {
+                               final ReteooBuilder builder) {
         return false;
     }
 
@@ -421,43 +376,32 @@ public class EntryPointNode extends ObjectSource
         return this.objectTypeNodes;
     }
 
-    public int hashCode() {
+    private int calculateHashCode() {
         return this.entryPoint.hashCode();
     }
 
+    @Override
     public boolean equals(final Object object) {
-        if ( object == this ) {
+        if (this == object) {
             return true;
         }
 
-        if ( object == null || !(object instanceof EntryPointNode) ) {
-            return false;
-        }
-
-        final EntryPointNode other = (EntryPointNode) object;
-        return this.entryPoint.equals( other.entryPoint );
+        return (((NetworkNode)object).getType() == NodeTypeEnums.EntryPointNode && this.hashCode() == object.hashCode() &&
+                this.entryPoint.equals( ( (EntryPointNode) object ).entryPoint ) );
     }
 
-    public void updateSink(final ObjectSink sink,
-                           final PropagationContext context,
-                           final InternalWorkingMemory workingMemory) {
-        // @todo
-        // JBRULES-612: the cache MUST be invalidated when a new node type is added to the network, so iterate and reset all caches.
+    public void updateSink(ObjectSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
         final ObjectTypeNode node = (ObjectTypeNode) sink;
-
         final ObjectType newObjectType = node.getObjectType();
-
-        InternalWorkingMemoryEntryPoint wmEntryPoint = (InternalWorkingMemoryEntryPoint) workingMemory.getWorkingMemoryEntryPoint( this.entryPoint.getEntryPointId() );
+        WorkingMemoryEntryPoint wmEntryPoint = workingMemory.getEntryPoint( this.entryPoint.getEntryPointId() );
 
         for ( ObjectTypeConf objectTypeConf : wmEntryPoint.getObjectTypeConfigurationRegistry().values() ) {
             if ( objectTypeConf.getConcreteObjectTypeNode() != null && newObjectType.isAssignableFrom( objectTypeConf.getConcreteObjectTypeNode().getObjectType() ) ) {
                 objectTypeConf.resetCache();
                 ObjectTypeNode sourceNode = objectTypeConf.getConcreteObjectTypeNode();
-                Iterator<InternalFactHandle> it = workingMemory.getNodeMemory( sourceNode ).iterator();
+                Iterator<InternalFactHandle> it = sourceNode.getFactHandlesIterator(workingMemory);
                 while ( it.hasNext() ) {
-                    sink.assertObject( it.next(),
-                                       context,
-                                       workingMemory );
+                    sink.assertObject( it.next(), context, workingMemory );
                 }
             }
         }
@@ -470,12 +414,12 @@ public class EntryPointNode extends ObjectSource
     public void byPassModifyToBetaNode(InternalFactHandle factHandle,
                                        ModifyPreviousTuples modifyPreviousTuples,
                                        PropagationContext context,
-                                       InternalWorkingMemory workingMemory) {
+                                       ReteEvaluator reteEvaluator) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public BitMask calculateDeclaredMask(List<String> settableProperties) {
+    public BitMask calculateDeclaredMask(Pattern pattern, ObjectType modifiedType, List<String> settableProperties) {
         throw new UnsupportedOperationException();
     }
 

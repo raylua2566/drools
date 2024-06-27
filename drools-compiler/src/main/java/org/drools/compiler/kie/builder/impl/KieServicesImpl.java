@@ -1,32 +1,40 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.compiler.kie.builder.impl;
 
+import java.io.File;
+import java.lang.ref.WeakReference;
+import java.util.Properties;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
 import org.drools.compiler.kie.builder.impl.event.KieServicesEventListerner;
-import org.drools.compiler.kproject.ReleaseIdImpl;
 import org.drools.compiler.kproject.models.KieModuleModelImpl;
-import org.drools.core.RuleBaseConfiguration;
-import org.drools.core.SessionConfiguration;
-import org.drools.core.SessionConfigurationImpl;
-import org.drools.core.audit.KnowledgeRuntimeLoggerProviderImpl;
-import org.drools.core.command.impl.CommandFactoryServiceImpl;
+import org.drools.core.BaseConfigurationFactories;
+import org.drools.core.CompositeSessionConfiguration;
+import org.drools.core.SessionConfigurationFactories;
 import org.drools.core.concurrent.ExecutorProviderImpl;
 import org.drools.core.impl.EnvironmentFactory;
-import org.drools.core.io.impl.ResourceFactoryServiceImpl;
-import org.drools.core.marshalling.impl.MarshallerProviderImpl;
+import org.drools.io.ResourceFactoryServiceImpl;
+import org.drools.kiesession.audit.KnowledgeRuntimeLoggerProviderImpl;
+import org.drools.wiring.api.classloader.ProjectClassLoader;
 import org.kie.api.KieBaseConfiguration;
 import org.kie.api.builder.KieBuilder;
 import org.kie.api.builder.KieFileSystem;
@@ -37,6 +45,7 @@ import org.kie.api.builder.ReleaseId;
 import org.kie.api.builder.model.KieModuleModel;
 import org.kie.api.command.KieCommands;
 import org.kie.api.concurrent.KieExecutors;
+import org.kie.api.internal.utils.KieService;
 import org.kie.api.io.KieResources;
 import org.kie.api.logger.KieLoggers;
 import org.kie.api.marshalling.KieMarshallers;
@@ -44,23 +53,25 @@ import org.kie.api.persistence.jpa.KieStoreServices;
 import org.kie.api.runtime.Environment;
 import org.kie.api.runtime.KieContainer;
 import org.kie.api.runtime.KieSessionConfiguration;
-import org.kie.internal.utils.ServiceRegistryImpl;
-
-import java.io.File;
-import java.lang.ref.WeakReference;
-import java.util.Properties;
+import org.kie.internal.conf.CompositeBaseConfiguration;
+import org.kie.internal.utils.ChainedProperties;
+import org.kie.util.maven.support.ReleaseIdImpl;
 
 import static org.drools.compiler.compiler.io.memory.MemoryFileSystem.readFromJar;
-import static org.drools.core.common.ProjectClassLoader.findParentClassLoader;
+import static org.drools.util.ClassUtils.findParentClassLoader;
 
 public class KieServicesImpl implements InternalKieServices {
-    private volatile KieContainer classpathKContainer;
 
+    private volatile KieContainer classpathKContainer;
+    private volatile String classpathKContainerId;
+    
     private volatile ClassLoader classpathClassLoader;
 
     private final Object lock = new Object();
 
     private WeakReference<KieServicesEventListerner> listener;
+    
+    private final ConcurrentMap<String, KieContainer> kContainers = new ConcurrentHashMap<>();
 
     public KieRepository getRepository() {
         return KieRepositoryImpl.INSTANCE;
@@ -70,16 +81,29 @@ public class KieServicesImpl implements InternalKieServices {
      * Returns KieContainer for the classpath
      */
     public KieContainer getKieClasspathContainer() {
-        return getKieClasspathContainer( findParentClassLoader() );
+        return getKieClasspathContainer( null, findParentClassLoader(getClass()) );
+    }
+    
+    public KieContainer getKieClasspathContainer(ClassLoader classLoader) {
+        return getKieClasspathContainer( null, classLoader );
+    }
+    
+    public KieContainer getKieClasspathContainer(String containerId) {
+        return getKieClasspathContainer( containerId, findParentClassLoader(getClass()) );
     }
 
-    public KieContainer getKieClasspathContainer(ClassLoader classLoader) {
+    public KieContainer getKieClasspathContainer(String containerId, ClassLoader classLoader) {
         if ( classpathKContainer == null ) {
             // these are heavy to create, don't want to end up with two
             synchronized ( lock ) {
                 if ( classpathKContainer == null ) {
                     classpathClassLoader = classLoader;
-                    classpathKContainer = newKieClasspathContainer(classLoader);
+                    if (containerId == null) {
+                        classpathKContainerId = UUID.randomUUID().toString();
+                    } else {
+                        classpathKContainerId = containerId;
+                    }
+                    classpathKContainer = newKieClasspathContainer(classpathKContainerId, classLoader);
                 } else if (classLoader != classpathClassLoader) {
                     throw new IllegalStateException("There's already another KieContainer created from a different ClassLoader");
                 }
@@ -88,36 +112,113 @@ public class KieServicesImpl implements InternalKieServices {
             throw new IllegalStateException("There's already another KieContainer created from a different ClassLoader");
         }
 
+        if (containerId != null && !classpathKContainerId.equals(containerId)) {
+            throw new IllegalStateException("The default global singleton KieClasspathContainer was already created with id "+classpathKContainerId);
+        }
+        
         return classpathKContainer;
     }
 
     public KieContainer newKieClasspathContainer() {
-        return newKieClasspathContainer( findParentClassLoader() );
+        return newKieClasspathContainer( null, findParentClassLoader(getClass()) );
+    }
+    
+    public KieContainer newKieClasspathContainer(ClassLoader classLoader) {
+        return newKieClasspathContainer( null, classLoader );
+    }
+    
+    public KieContainer newKieClasspathContainer(String containerId) {
+        return newKieClasspathContainer( containerId, findParentClassLoader(getClass()) );
     }
 
-    public KieContainer newKieClasspathContainer(ClassLoader classLoader) {
-        return new KieContainerImpl(new ClasspathKieProject(classLoader, listener), null);
+    public KieContainer newKieClasspathContainer(String containerId, ClassLoader classLoader) {
+        return newKieClasspathContainer(containerId, classLoader, null);
+    }
+
+    @Override
+    public KieContainer newKieClasspathContainer(String containerId, ClassLoader classLoader, ReleaseId releaseId) {
+        if (containerId == null) {
+            return new KieContainerImpl(UUID.randomUUID().toString(), new ClasspathKieProject(classLoader, listener, releaseId), null);
+        }
+        if ( kContainers.get(containerId) == null ) {
+            KieContainerImpl newContainer = new KieContainerImpl(containerId, new ClasspathKieProject(classLoader, listener, releaseId), null, releaseId);
+            KieContainer check = kContainers.putIfAbsent(containerId, newContainer);
+            if (check == null) {
+                return newContainer;
+            } else {
+                newContainer.dispose();
+                throw new IllegalStateException("There's already another KieContainer created with the id "+containerId);
+            }
+        } else {
+            throw new IllegalStateException("There's already another KieContainer created with the id "+containerId);
+        }
     }
 
     public void nullKieClasspathContainer() {
         // used for testing only
         synchronized ( lock ) {
             classpathKContainer = null;
+            classpathKContainerId = null;
             classpathClassLoader = null;
         }  
     }
     
-    public KieContainer newKieContainer(ReleaseId releaseId) {
-        return newKieContainer(releaseId, null);
+    /**
+     * Voids the internal map of containerId (s) used for handling reference and unique checks. This method is intended for use in unit test only.
+     */
+    public void nullAllContainerIds() {
+        synchronized ( lock ) {
+            kContainers.clear();
+        }
+    }
+    
+    @Override
+    public void clearRefToContainerId(String containerId, KieContainer containerRef) {
+        kContainers.remove(containerId, containerRef);
     }
 
+    public KieContainer newKieContainer(ReleaseId releaseId) {
+        return newKieContainer(null, releaseId, null);
+    }
+    
+    public KieContainer newKieContainer(String containerId, ReleaseId releaseId) {
+        return newKieContainer(containerId, releaseId, null);
+    }
+    
     public KieContainer newKieContainer(ReleaseId releaseId, ClassLoader classLoader) {
+        return newKieContainer(null, releaseId, classLoader);
+    }
+
+    public KieContainer newKieContainer(String containerId, ReleaseId releaseId, ClassLoader classLoader) {
         InternalKieModule kieModule = (InternalKieModule) getRepository().getKieModule(releaseId);
         if (kieModule == null) {
             throw new RuntimeException("Cannot find KieModule: " + releaseId);
         }
+        if (classLoader == null) {
+            classLoader = kieModule.getModuleClassLoader();
+        }
         KieProject kProject = new KieModuleKieProject( kieModule, classLoader );
-        return new KieContainerImpl( kProject, getRepository(), releaseId );
+        if (classLoader != kProject.getClassLoader()) {
+            // if the new kproject has a different classloader than the original one it has to be initialized
+            kProject.init();
+        }
+
+        if (containerId == null) {
+            return new KieContainerImpl( UUID.randomUUID().toString(), kProject, getRepository(), releaseId );
+        }
+
+        if ( kContainers.get(containerId) == null ) {
+            KieContainerImpl newContainer = new KieContainerImpl( containerId, kProject, getRepository(), releaseId );
+            KieContainer check = kContainers.putIfAbsent(containerId, newContainer);
+            if (check == null) {
+                return newContainer;
+            } else {
+                newContainer.dispose();
+                throw new IllegalStateException("There's already another KieContainer created with the id "+containerId);
+            }
+        } else {
+            throw new IllegalStateException("There's already another KieContainer created with the id "+containerId);
+        }
     }
     
 
@@ -134,10 +235,17 @@ public class KieServicesImpl implements InternalKieServices {
     }
 
     public KieScanner newKieScanner(KieContainer kieContainer) {
-        KieScannerFactoryService scannerFactoryService = ServiceRegistryImpl.getInstance().get( KieScannerFactoryService.class );
+        KieScannerFactoryService scannerFactoryService = KieService.load(KieScannerFactoryService.class);
+        if (scannerFactoryService == null) {
+            throw new RuntimeException( "Cannot instance a maven based KieScanner, is kie-ci on the classpath?" );
+        }
         InternalKieScanner scanner = (InternalKieScanner)scannerFactoryService.newKieScanner();
         scanner.setKieContainer(kieContainer);
         return scanner;
+    }
+
+    public KieScanner newKieScanner(KieContainer kieContainer, String repositoryFolder) {
+        return new KieFileSystemScannerImpl( kieContainer, repositoryFolder );
     }
 
     public KieResources getResources() {
@@ -146,13 +254,19 @@ public class KieServicesImpl implements InternalKieServices {
     }
 
     public KieCommands getCommands() {
-        // instantiating directly, but we might want to use the service registry instead
-        return new CommandFactoryServiceImpl();
+        return KieCommandsHolder.KIE_COMMANDS;
+    }
+
+    private static class KieCommandsHolder {
+        private static final KieCommands KIE_COMMANDS = KieService.load( KieCommands.class );
     }
 
     public KieMarshallers getMarshallers() {
-        // instantiating directly, but we might want to use the service registry instead
-        return new MarshallerProviderImpl();
+        KieMarshallers kieMarshallers = KieService.load( KieMarshallers.class );
+        if (kieMarshallers == null) {
+            throw new RuntimeException("Marshaller not available, please add the module org.drools:drools-serialization-protobuf to your classpath.");
+        }
+        return kieMarshallers;
     }
 
     public KieLoggers getLoggers() {
@@ -166,7 +280,7 @@ public class KieServicesImpl implements InternalKieServices {
     }
     
     public KieStoreServices getStoreServices() {
-        return ServiceRegistryImpl.getInstance().get( KieStoreServices.class );
+        return KieService.load( KieStoreServices.class );
     }
 
     public ReleaseId newReleaseId(String groupId, String artifactId, String version) {
@@ -182,27 +296,47 @@ public class KieServicesImpl implements InternalKieServices {
     }
 
     public KieBaseConfiguration newKieBaseConfiguration() {
-        return new RuleBaseConfiguration();
+        return newKieBaseConfiguration(null, null);
     }
 
     public KieBaseConfiguration newKieBaseConfiguration(Properties properties) {
-        return new RuleBaseConfiguration(properties, null);
+        return newKieBaseConfiguration(properties, null);
     }
 
     public KieBaseConfiguration newKieBaseConfiguration(Properties properties, ClassLoader classLoader) {
-        return new RuleBaseConfiguration(properties, classLoader);
+        ClassLoader projClassLoader = getClassLoader(classLoader);
+
+        ChainedProperties chained = ChainedProperties.getChainedProperties(projClassLoader);
+
+        if ( properties != null ) {
+            chained.addProperties( properties );
+        }
+        return new CompositeBaseConfiguration(chained, projClassLoader,
+                                              BaseConfigurationFactories.baseConf, BaseConfigurationFactories.ruleConf, BaseConfigurationFactories.flowConf);
     }
 
     public KieSessionConfiguration newKieSessionConfiguration() {
-        return SessionConfiguration.newInstance();
+        return newKieSessionConfiguration(null, null);
     }
 
     public KieSessionConfiguration newKieSessionConfiguration(Properties properties) {
-        return new SessionConfigurationImpl(properties);
+        return newKieSessionConfiguration(properties, null);
     }
 
     public KieSessionConfiguration newKieSessionConfiguration(Properties properties, ClassLoader classLoader) {
-        return new SessionConfigurationImpl(properties, classLoader);
+        ClassLoader projClassLoader = getClassLoader(classLoader);
+
+        ChainedProperties chained = ChainedProperties.getChainedProperties(projClassLoader);
+
+        if ( properties != null ) {
+            chained.addProperties( properties );
+        }
+        return new CompositeSessionConfiguration(chained, projClassLoader,
+                                                 SessionConfigurationFactories.baseConf, SessionConfigurationFactories.ruleConf, SessionConfigurationFactories.flowConf);
+    }
+
+    private ClassLoader getClassLoader(ClassLoader classLoader) {
+        return classLoader instanceof ProjectClassLoader ? classLoader : ProjectClassLoader.getClassLoader(classLoader, getClass());
     }
 
     public Environment newEnvironment() {
@@ -211,7 +345,7 @@ public class KieServicesImpl implements InternalKieServices {
 
     @Override
     public void registerListener(KieServicesEventListerner listener) {
-        this.listener = new WeakReference<KieServicesEventListerner>(listener);
+        this.listener = new WeakReference<>(listener);
     }
 }
 

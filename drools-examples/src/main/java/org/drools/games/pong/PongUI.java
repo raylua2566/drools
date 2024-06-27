@@ -1,37 +1,32 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.games.pong;
 
 import java.awt.*;
-import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.font.FontRenderContext;
 import java.awt.font.TextLayout;
-import java.awt.image.BufferedImage;
-
-import javax.swing.*;
 
 import org.drools.games.GameConfiguration;
 import org.drools.games.GameUI;
 import org.kie.api.runtime.KieSession;
-import org.kie.internal.runtime.StatefulKnowledgeSession;
-import org.kie.api.runtime.rule.FactHandle;
-import org.kie.api.runtime.rule.EntryPoint;
 
 public class PongUI extends GameUI {
     private PongConfiguration pconf;
@@ -40,11 +35,24 @@ public class PongUI extends GameUI {
         super(ksession, conf);
         this.pconf = (PongConfiguration) conf;
     }
+    
+    @Override
+    public void init() {
+        super.init();
+        registerWindowListenerOnFrame(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                getKieSession().halt();
+            }
+        });
+    }
 
     public void drawGame(Ball ball, Bat bat1, Bat bat2, Player p1, Player p2) {
-        clearMovingBall(ball);
-        clearBat(bat1);
-        clearBat(bat2);
+        Graphics tableG = getGraphics(); //ui.getTablePanel().getTableG();
+        tableG.setColor( Color.BLACK ); // background
+        tableG.fillRect(0,0, getWidth(), getHeight() );
+
+        tableG.setColor( Color.WHITE ); // background
 
         drawScore( p1, 100 );
         drawScore( p2, pconf.getTableWidth()-120 );
@@ -56,27 +64,8 @@ public class PongUI extends GameUI {
         repaint();
     }
 
-    public void clearBall(Ball ball) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(ball.getX(), ball.getY(), ball.getWidth(), ball.getWidth());
-    }
-
-    public void clearMovingBall(Ball ball) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(ball.getX()-(ball.getDx()*ball.getSpeed()), ball.getY()-(ball.getDy()*ball.getSpeed()), ball.getWidth(), ball.getWidth());
-    }
-
-    public void clearBat(Bat bat) {
-        Graphics g = getGraphics();
-        g.setColor( Color.BLACK ); // background
-        g.clearRect(bat.getX(), bat.getY()-bat.getDy(), bat.getWidth(), bat.getHeight());
-    }
-
     public void drawTable() {
         Graphics tableG = getGraphics(); //ui.getTablePanel().getTableG();
-        tableG.setColor( Color.WHITE ); // background
 
         int padding = pconf.getPadding();
         int tableWidth = pconf.getTableWidth();
@@ -93,7 +82,7 @@ public class PongUI extends GameUI {
         int dash = pconf.getNetDash();
         int x = (tableWidth/2) - (netWidth/2);
         for (int i = 0; i < tableHeight; i = i + dash + gap) {
-            tableG.fillRect( (int) x, i, netWidth, dash );
+            tableG.fillRect(x, i, netWidth, dash);
         }
     }
 

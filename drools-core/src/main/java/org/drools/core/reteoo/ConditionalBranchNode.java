@@ -1,42 +1,45 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.core.reteoo;
-
-import org.drools.core.RuleBaseConfiguration;
-import org.drools.core.common.InternalFactHandle;
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.Memory;
-import org.drools.core.common.MemoryFactory;
-import org.drools.core.common.UpdateContext;
-import org.drools.core.util.AbstractBaseLinkedListNode;
-import org.drools.core.reteoo.builder.BuildContext;
-import org.drools.core.spi.PropagationContext;
 
 import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 
+import org.drools.base.common.NetworkNode;
+import org.drools.base.reteoo.NodeTypeEnums;
+import org.drools.core.RuleBaseConfiguration;
+import org.drools.core.common.InternalFactHandle;
+import org.drools.core.common.Memory;
+import org.drools.core.common.MemoryFactory;
+import org.drools.core.common.PropagationContext;
+import org.drools.core.common.ReteEvaluator;
+import org.drools.core.common.UpdateContext;
+import org.drools.core.reteoo.builder.BuildContext;
+import org.drools.core.util.AbstractLinkedListNode;
+
 /**
  * Node which allows to follow different paths in the Rete-OO network,
  * based on the result of a boolean <code>Test</code>.
  */
 public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleSinkNode, MemoryFactory<ConditionalBranchNode.ConditionalBranchMemory>  {
-
-    private LeftTupleSource tupleSource;
 
     protected ConditionalBranchEvaluator branchEvaluator;
 
@@ -47,49 +50,32 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
 
     public ConditionalBranchNode() { }
 
-    public ConditionalBranchNode( int id,
-                                  LeftTupleSource tupleSource,
-                                  ConditionalBranchEvaluator branchEvaluator,
-                                  BuildContext context ) {
+    public ConditionalBranchNode(int id,
+                                 LeftTupleSource tupleSource,
+                                 ConditionalBranchEvaluator branchEvaluator,
+                                 BuildContext context) {
         super(id, context);
-        this.tupleSource = tupleSource;
+        setLeftTupleSource( tupleSource );
+        this.setObjectCount(leftInput.getObjectCount()); // 'conditional branch' does not node increase the object count
         this.tupleMemoryEnabled = context.isTupleMemoryEnabled();
         this.branchEvaluator = branchEvaluator;
 
         initMasks(context, tupleSource);
-    }
 
-    @Override
-    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-        super.readExternal(in);
-        tupleSource = (LeftTupleSource) in.readObject();
-        tupleMemoryEnabled = in.readBoolean();
-        branchEvaluator = (ConditionalBranchEvaluator) in.readObject();
+        hashcode = calculateHashCode();
     }
-
-    @Override
-    public void writeExternal(ObjectOutput out) throws IOException {
-        super.writeExternal(out);
-        out.writeObject(tupleSource);
-        out.writeBoolean(tupleMemoryEnabled);
-        out.writeObject(branchEvaluator);
-    }
-    
 
     public ConditionalBranchEvaluator getBranchEvaluator() {
         return branchEvaluator;
     }
 
-    public void attach( BuildContext context ) {
-        this.tupleSource.addTupleSink(this, context);
+    public void doAttach( BuildContext context ) {
+        super.doAttach(context);
+        getLeftTupleSource().addTupleSink(this, context);
     }
 
     public void networkUpdated(UpdateContext updateContext) {
-        this.tupleSource.networkUpdated(updateContext);
-    }
-
-    public LeftTupleSource getLeftTupleSource() {
-        return this.tupleSource;
+        getLeftTupleSource().networkUpdated(updateContext);
     }
 
     /**
@@ -101,42 +87,31 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
         return "[ConditionalBranchNode: cond=" + this.branchEvaluator + "]";
     }
 
-    public int hashCode() {
-        return this.tupleSource.hashCode() ^ this.branchEvaluator.hashCode();
-    }
-
-    public boolean equals(final Object object) {
-        if ( this == object ) {
-            return true;
-        }
-
-        if ( object == null || object.getClass() != ConditionalBranchNode.class ) {
-            return false;
-        }
-
-        final ConditionalBranchNode other = (ConditionalBranchNode) object;
-
-        return this.tupleSource.equals( other.tupleSource ) && this.branchEvaluator.equals( other.branchEvaluator );
-    }
-
-    public ConditionalBranchMemory createMemory(final RuleBaseConfiguration config, InternalWorkingMemory wm) {
-        return new ConditionalBranchMemory( branchEvaluator.createContext() );
+    private int calculateHashCode() {
+        return getLeftTupleSource().hashCode() ^ this.branchEvaluator.hashCode();
     }
 
     @Override
-    public LeftTuple createPeer(LeftTuple original) {
-        EvalNodeLeftTuple peer = new EvalNodeLeftTuple();
-        peer.initPeer( (BaseLeftTuple) original, this );
-        original.setPeer( peer );
-        return peer;
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+
+        if (((NetworkNode)object).getType() != NodeTypeEnums.ConditionalBranchNode || this.hashCode() != object.hashCode()) {
+            return false;
+        }
+
+        ConditionalBranchNode other = (ConditionalBranchNode)object;
+        return getLeftTupleSource().getId() == other.getLeftTupleSource().getId() &&
+                this.branchEvaluator.equals( other.branchEvaluator );
+    }
+
+    public ConditionalBranchMemory createMemory(final RuleBaseConfiguration config, ReteEvaluator reteEvaluator) {
+        return new ConditionalBranchMemory( branchEvaluator.createContext() );
     }
 
     public boolean isLeftTupleMemoryEnabled() {
         return tupleMemoryEnabled;
-    }
-
-    public void setLeftTupleMemoryEnabled(boolean tupleMemoryEnabled) {
-        this.tupleMemoryEnabled = tupleMemoryEnabled;
     }
 
     /**
@@ -175,44 +150,11 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
         this.previousTupleSinkNode = previous;
     }
 
-    public short getType() {
+    public int getType() {
         return NodeTypeEnums.ConditionalBranchNode;
     }
 
-    public LeftTuple createLeftTuple(InternalFactHandle factHandle,
-                                     Sink sink,
-                                     boolean leftTupleMemoryEnabled) {
-        return new EvalNodeLeftTuple(factHandle, sink, leftTupleMemoryEnabled );
-    }
-
-    public LeftTuple createLeftTuple(final InternalFactHandle factHandle,
-                                     final LeftTuple leftTuple,
-                                     final Sink sink) {
-        return new EvalNodeLeftTuple(factHandle,leftTuple, sink );
-    }
-
-    public LeftTuple createLeftTuple(LeftTuple leftTuple,
-                                     Sink sink,
-                                     PropagationContext pctx, boolean leftTupleMemoryEnabled) {
-        return new EvalNodeLeftTuple(leftTuple,sink, pctx, leftTupleMemoryEnabled );
-    }
-
-    public LeftTuple createLeftTuple(LeftTuple leftTuple,
-                                     RightTuple rightTuple,
-                                     Sink sink) {
-        return new EvalNodeLeftTuple(leftTuple, rightTuple, sink );
-    }
-
-    public LeftTuple createLeftTuple(LeftTuple leftTuple,
-                                     RightTuple rightTuple,
-                                     LeftTuple currentLeftChild,
-                                     LeftTuple currentRightChild,
-                                     Sink sink,
-                                     boolean leftTupleMemoryEnabled) {
-        return new EvalNodeLeftTuple(leftTuple, rightTuple, currentLeftChild, currentRightChild, sink, leftTupleMemoryEnabled );
-    }
-
-    public static class ConditionalBranchMemory extends AbstractBaseLinkedListNode<Memory>
+    public static class ConditionalBranchMemory extends AbstractLinkedListNode<Memory>
             implements
             Externalizable,
             Memory {
@@ -240,7 +182,7 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
             out.writeObject( context );
         }
 
-        public short getNodeType() {
+        public int getNodeType() {
             return NodeTypeEnums.ConditionalBranchNode;
         }
         
@@ -255,44 +197,30 @@ public class ConditionalBranchNode extends LeftTupleSource implements LeftTupleS
         public void reset() { }
     }
 
-    protected ObjectTypeNode getObjectTypeNode() {
-        return tupleSource.getObjectTypeNode();
-    }
-
     @Override
-    public void assertLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void retractLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(InternalFactHandle factHandle, ModifyPreviousTuples modifyPreviousTuples, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void updateSink(LeftTupleSink sink, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void modifyLeftTuple(LeftTuple leftTuple, PropagationContext context, InternalWorkingMemory workingMemory) {
-        throw new UnsupportedOperationException();
+    public ObjectTypeNode getObjectTypeNode() {
+        return getLeftTupleSource().getObjectTypeNode();
     }
 
     protected boolean doRemove(final RuleRemovalContext context,
-                               final ReteooBuilder builder,
-                               final InternalWorkingMemory[] workingMemories) {
+                               final ReteooBuilder builder) {
         if ( !this.isInUse() ) {
-            tupleSource.removeTupleSink( this );
+            getLeftTupleSource().removeTupleSink( this );
             return true;
         } else {
             throw new RuntimeException("ConditionalBranchNode cannot be shared");
         }
     }
 
+    @Override
+    protected void initDeclaredMask(BuildContext context, LeftTupleSource leftInput) {
+        // See LeftTupleSource.initDeclaredMask() should result for the ConditionalBranch to result in ALLSET:
+        // at the moment if pattern is null (e.g. for eval node) we cannot calculate the mask, so we leave it to 0
+        // 
+        // In other words, a conditional branch is analogous to an eval() call - mask ALL SET
+        
+        // To achieve the result, we highjack the call:
+        super.initDeclaredMask(null, null);
+    }
+    
 }

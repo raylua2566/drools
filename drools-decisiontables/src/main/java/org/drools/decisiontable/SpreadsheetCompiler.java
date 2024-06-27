@@ -1,21 +1,24 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.decisiontable;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,9 +29,12 @@ import org.drools.decisiontable.parser.DecisionTableParser;
 import org.drools.decisiontable.parser.DefaultRuleSheetListener;
 import org.drools.decisiontable.parser.RuleSheetListener;
 import org.drools.decisiontable.parser.xls.ExcelParser;
+import org.drools.io.FileSystemResource;
 import org.drools.template.model.DRLOutput;
 import org.drools.template.model.Package;
 import org.drools.template.parser.DataListener;
+import org.kie.api.io.Resource;
+import org.kie.internal.io.ResourceFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +46,16 @@ import org.slf4j.LoggerFactory;
 public class SpreadsheetCompiler {
 
     protected static final transient Logger logger = LoggerFactory.getLogger(SpreadsheetCompiler.class);
+
+    private final boolean trimCell;
+
+    public SpreadsheetCompiler() {
+        this(true);
+    }
+
+    public SpreadsheetCompiler(boolean trimCell) {
+        this.trimCell = trimCell;
+    }
 
     /**
      * Generates DRL from the input stream containing the spreadsheet.
@@ -56,7 +72,7 @@ public class SpreadsheetCompiler {
                           final InputType type) {
         return compile( xlsStream,
                         type,
-                        new DefaultRuleSheetListener( showPackage ) );
+                        new DefaultRuleSheetListener( showPackage, trimCell ) );
     }
 
     /**
@@ -71,7 +87,14 @@ public class SpreadsheetCompiler {
                           final InputType type) {
         return compile( xlsStream,
                         type,
-                        new DefaultRuleSheetListener() );
+                        new DefaultRuleSheetListener(true, trimCell) );
+    }
+
+    public String compile(final Resource resource,
+                          final InputType type) {
+        return compile( resource,
+                        type,
+                        new DefaultRuleSheetListener(true, trimCell) );
     }
 
     /**
@@ -89,12 +112,34 @@ public class SpreadsheetCompiler {
     public String compile(final InputStream xlsStream,
                           final InputType type,
                           final RuleSheetListener listener) {
-        final DecisionTableParser parser = type.createParser( listener );
-        parser.parseFile( xlsStream );
+        type.createParser( listener ).parseFile( xlsStream );
+        return listenerToString( listener );
+    }
+
+    public String compile(final Resource resource,
+                          final InputType type,
+                          final RuleSheetListener listener) {
+        parseResource( type.createParser( listener ), resource );
+        return listenerToString( listener );
+    }
+
+    public String listenerToString( RuleSheetListener listener ) {
         final Package rulePackage = listener.getRuleSet();
         final DRLOutput out = new DRLOutput();
         rulePackage.renderDRL( out );
         return out.getDRL();
+    }
+
+    private void parseResource( DecisionTableParser parser, Resource resource ) {
+        if (resource instanceof FileSystemResource) {
+            parser.parseFile( ( (FileSystemResource) resource ).getFile() );
+        } else {
+            try {
+                parser.parseFile( resource.getInputStream() );
+            } catch (IOException e) {
+                throw new RuntimeException( e );
+            }
+        }
     }
 
     /**
@@ -131,25 +176,25 @@ public class SpreadsheetCompiler {
      */
     public String compile(final InputStream stream,
                           final String worksheetName) {
-        final RuleSheetListener listener = getRuleSheetListener( stream,
-                                                                 worksheetName );
-        final Package rulePackage = listener.getRuleSet();
-        final DRLOutput out = new DRLOutput();
-        rulePackage.renderDRL( out );
-        return out.getDRL();
+        return compile( ResourceFactory.newInputStreamResource( stream ), worksheetName );
     }
 
-    private RuleSheetListener getRuleSheetListener(final InputStream stream,
+    public String compile(final Resource resource,
+                          final String worksheetName) {
+        final RuleSheetListener listener = getRuleSheetListener( resource,
+                                                                 worksheetName );
+        return listenerToString( listener );
+    }
+
+    private RuleSheetListener getRuleSheetListener(final Resource resource,
                                                    final String worksheetName) {
         final DefaultRuleSheetListener listener = new DefaultRuleSheetListener();
         listener.setWorksheetName(worksheetName);
-        final Map<String, List<DataListener>> sheetListeners = new HashMap<String, List<DataListener>>();
-        final List<DataListener> listeners = new ArrayList<DataListener>();
+        final Map<String, List<DataListener>> sheetListeners = new HashMap<>();
+        final List<DataListener> listeners = new ArrayList<>();
         listeners.add(listener);
-        sheetListeners.put( worksheetName,
-                       listeners );
-        final ExcelParser parser = new ExcelParser( sheetListeners );
-        parser.parseFile( stream );
+        sheetListeners.put( worksheetName, listeners );
+        parseResource( new ExcelParser( sheetListeners ), resource );
         return listener;
     }
 

@@ -1,17 +1,21 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 package org.drools.games.invaders6;
 
@@ -33,13 +37,22 @@ import java.awt.Graphics
 
 dialect "mvel"
 
+
+rule ClearCanvas agenda-group "Draw"  salience 100 when
+    Run()
+then
+   g = ui.getGraphics();
+   g.setColor( Color.BLACK ); // background
+   g.fillRect(0,0, conf.getWindowWidth(), conf.getWindowHeight() );
+end
+
 rule DrawShip agenda-group "Draw" when
   s : Ship()
       Run()
 then
    g = ui.getGraphics();
    g.setColor( Color.BLACK ); // background
-   g.fillRect( s.x - s.dx - s.dy, s.y, s.width, s.height ); // restore the previous blackground
+   g.fillRect( s.x - s.dx, s.y, s.width, s.height ); // restore the previous blackground
    g.drawImage( ImageIO.read( GameUI.class.getResource( "invaders/ship.gif" ) ), s.x, s.y, s.width, s.height, ui.getCanvas() );
 end
 
@@ -49,7 +62,6 @@ rule DrawLiveInvader agenda-group "Draw" when
 then
    g = ui.getGraphics();
    g.setColor( Color.BLACK ); // background
-   g.fillRect( i.x - i.dx, i.y - i.dy, i.width, i.height ); // restore the previous blackground
    g.drawImage( ImageIO.read( GameUI.class.getResource( "invaders/invader1.gif" ) ), i.x, i.y, i.width, i.height, ui.getCanvas() );
 end
 
@@ -81,11 +93,12 @@ then
    g = ui.getGraphics();
    g.setColor( Color.BLACK ); // background
    g.fillRect( b.x , b.y, b.width, b.height ); // restore the background
-   retract( b )
+   delete( b )
 end
 
 rule Repaint agenda-group "Draw"  salience -100 when
     Run()
 then
-   ui.repaint();
+   ui.disposeGraphics();
+   ui.getBufferStrategy().show();
 end

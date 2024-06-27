@@ -1,27 +1,30 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.template.model;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static org.drools.util.StringUtils.splitConstraints;
 
 /**
  * This utility class exists to convert rule script snippets to actual code. The
@@ -51,19 +54,23 @@ public class SnippetBuilder {
 
     private final SnippetType type;
 
-    private final Pattern delimiter;
+    private final boolean trim;
 
     /**
      * @param snippetTemplate The snippet including the "place holder" for a parameter. If
      * no "place holder" is present,
      */
-    public SnippetBuilder( final String snippetTemplate ) {
+    public SnippetBuilder( String snippetTemplate ) {
+        this(snippetTemplate, true);
+    }
+
+    public SnippetBuilder( String snippetTemplate, boolean trim ) {
         if ( snippetTemplate == null ) {
             throw new RuntimeException( "Script template is null - check for missing script definition." );
         }
+        this.trim = trim;
         this._template = snippetTemplate;
         this.type = getType( _template );
-        this.delimiter = Pattern.compile( "(.*?[^\\\\])(,|\\z)" );
     }
 
     public static SnippetType getType( String template ) {
@@ -96,7 +103,7 @@ public class SnippetBuilder {
 
     private String buildForAll( final String cellValue ) {
         final String[] cellVals = split( cellValue );
-        Map<String, String> replacements = new HashMap<String, String>();
+        Map<String, String> replacements = new HashMap<>();
         Matcher forallMatcher = PARAM_FORALL_PATTERN.matcher( _template );
         while ( forallMatcher.find() ) {
             replacements.put( forallMatcher.group(), "" );
@@ -125,7 +132,7 @@ public class SnippetBuilder {
             final String replace = PARAM_PREFIX + ( paramNumber + 1 );
             result = replace( result,
                               replace,
-                              cellVals[ paramNumber ].trim(),
+                              trim ? cellVals[ paramNumber ].trim() : cellVals[ paramNumber ],
                               256 );
 
         }
@@ -133,13 +140,8 @@ public class SnippetBuilder {
     }
 
     private String[] split( String input ) {
-        Matcher m = delimiter.matcher( input );
-        List<String> result = new ArrayList<String>();
-        while ( m.find() ) {
-            result.add( m.group( 1 ).replaceAll( "\\\\,", "," ) );
-        }
-        return result.toArray( new String[ result.size() ] );
-
+        List<String> splitList = splitConstraints(input, false);
+        return splitList.toArray(new String[splitList.size()]);
     }
 
     /**
@@ -167,12 +169,12 @@ public class SnippetBuilder {
             return text;
         }
 
-        final StringBuffer buf = new StringBuffer( text.length() );
+        final StringBuilder buf = new StringBuilder( text.length() );
         int start = 0, end = 0;
         while ( ( end = text.indexOf( repl,
                                       start ) ) != -1 ) {
             buf.append( text.substring( start,
-                                        end ) ).append( with );
+                                        end ) ).append( with.replace("\n", "\\n") );
             start = end + repl.length();
 
             if ( --max == 0 ) {

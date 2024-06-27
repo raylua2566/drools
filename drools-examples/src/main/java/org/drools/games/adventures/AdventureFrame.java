@@ -1,31 +1,27 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.games.adventures;
 
 import net.miginfocom.layout.ConstraintParser;
 import net.miginfocom.swing.MigLayout;
+import org.drools.games.adventures.model.*;
 import org.drools.games.adventures.model.Character;
-import org.drools.games.adventures.model.DropCommand;
-import org.drools.games.adventures.model.GiveCommand;
-import org.drools.games.adventures.model.LookCommand;
-import org.drools.games.adventures.model.MoveCommand;
-import org.drools.games.adventures.model.PickupCommand;
-import org.drools.games.adventures.model.Room;
-import org.drools.games.adventures.model.Thing;
-import org.drools.games.adventures.model.UseCommand;
 import org.kie.api.runtime.Channel;
 
 import javax.swing.*;
@@ -448,6 +444,17 @@ public class AdventureFrame extends JFrame {
             }
         } );
 
+        JButton searchBtn = new JButton( "Search" );
+        giveBtn.setToolTipText("Select the item to search, then press send.");
+        actionsPanel.add( searchBtn );
+        searchBtn.addActionListener( new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                cmdTextField.setText( "Search " );
+                cmd = new ArrayList();
+                cmd.add( SearchCommand.class);
+            }
+        } );
+
         parent.add( actionsPanel,
                     "top, left" );
 
@@ -674,7 +681,11 @@ public class AdventureFrame extends JFrame {
             LayoutManager lm = c.getParent().getLayout();
             if ( lm instanceof MigLayout ) {
                 Object constr = ((MigLayout) lm).getComponentConstraints( c );
-                if ( constr instanceof String ) c.setToolTipText( (constr != null ? ("\"" + constr + "\"") : "null") );
+                if (constr instanceof String) {
+                    c.setToolTipText( "\"" + constr + "\"" );
+                } else {
+                    c.setToolTipText("null");
+                }
             }
         }
     }
@@ -848,7 +859,7 @@ public class AdventureFrame extends JFrame {
         JInternalFrame internalFrame = pane.createInternalFrame( contentPane,
                                                                  "xxx title" );
         internalFrame.setVisible( true );
-        pane.show();
+        pane.setVisible(true);
         internalFrame.addInternalFrameListener( new InternalFrameListener() {
 
             public void internalFrameOpened(InternalFrameEvent e) {
@@ -888,7 +899,7 @@ public class AdventureFrame extends JFrame {
         public void send(Object object) {
             //textArea.insert( object.toString() + "\n", 0 );
             textArea.append( object.toString() + "\n" );
-            JScrollPane scrollPane = (JScrollPane) ((JViewport) textArea.getParent()).getParent();
+            JScrollPane scrollPane = (JScrollPane) textArea.getParent().getParent();
 
             // Can't get this to work :(
             //            JScrollBar verticalScrollBar = scrollPane.getVerticalScrollBar();

@@ -1,43 +1,22 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.kie.scanner;
-
-import org.drools.compiler.kie.builder.impl.InternalKieContainer;
-import org.drools.compiler.kie.builder.impl.InternalKieModule;
-import org.drools.compiler.kie.builder.impl.InternalKieScanner;
-import org.drools.compiler.kie.builder.impl.MemoryKieModule;
-import org.drools.compiler.kie.builder.impl.ResultsImpl;
-import org.drools.compiler.kie.builder.impl.ZipKieModule;
-import org.drools.compiler.kproject.ReleaseIdImpl;
-import org.drools.compiler.kproject.models.KieModuleModelImpl;
-import org.drools.compiler.kproject.xml.DependencyFilter;
-import org.drools.compiler.kproject.xml.PomModel;
-import org.eclipse.aether.artifact.Artifact;
-import org.kie.api.KieServices;
-import org.kie.api.builder.KieModule;
-import org.kie.api.builder.KieScanner;
-import org.kie.api.builder.Message;
-import org.kie.api.builder.ReleaseId;
-import org.kie.api.builder.model.KieModuleModel;
-import org.kie.api.runtime.KieContainer;
-import org.kie.scanner.management.KieScannerMBean;
-import org.kie.scanner.management.KieScannerMBeanImpl;
-import org.kie.scanner.management.MBeanUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,22 +24,40 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import static org.drools.compiler.kie.builder.impl.KieBuilderImpl.buildKieModule;
-import static org.drools.compiler.kie.builder.impl.KieBuilderImpl.setDefaultsforEmptyKieModule;
-import static org.kie.scanner.ArtifactResolver.getResolverFor;
+import org.drools.compiler.kie.builder.impl.AbstractKieScanner;
+import org.drools.compiler.kie.builder.impl.InternalKieModule;
+import org.drools.compiler.kie.builder.impl.InternalKieScanner;
+import org.drools.compiler.kie.builder.impl.MemoryKieModule;
+import org.drools.compiler.kie.builder.impl.ResultsImpl;
+import org.drools.compiler.kproject.models.KieModuleModelImpl;
+import org.drools.core.impl.InternalKieContainer;
+import org.eclipse.aether.artifact.Artifact;
+import org.kie.api.KieServices;
+import org.kie.api.builder.KieModule;
+import org.kie.api.builder.KieScanner;
+import org.kie.api.builder.Message;
+import org.kie.api.builder.ReleaseId;
+import org.kie.api.builder.Results;
+import org.kie.api.runtime.KieContainer;
+import org.kie.maven.integration.ArtifactResolver;
+import org.kie.maven.integration.DependencyDescriptor;
+import org.kie.scanner.management.KieScannerMBean;
+import org.kie.scanner.management.KieScannerMBeanImpl;
+import org.kie.scanner.management.MBeanUtils;
+import org.kie.util.maven.support.DependencyFilter;
+import org.kie.util.maven.support.PomModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class KieRepositoryScannerImpl implements InternalKieScanner {
+import static org.drools.compiler.kie.builder.impl.InternalKieModule.createKieModule;
 
-    private Timer timer;
+public class KieRepositoryScannerImpl extends AbstractKieScanner<Map<DependencyDescriptor, Artifact>> implements InternalKieScanner {
 
     private static final Logger log = LoggerFactory.getLogger(KieScanner.class);
-
-    private InternalKieContainer kieContainer;
+    private static final DependencyFilter.ExcludeScopeFilter DEPENDENCY_SCOPEFILTER = new DependencyFilter.ExcludeScopeFilter("test", "provided", "system");
 
     private DependencyDescriptor kieProjectDescr;
 
@@ -68,11 +65,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
 
     private ArtifactResolver artifactResolver;
 
-    private Status status = Status.STARTING;
-
     private KieScannerMBean mbean;
-
-    private long pollingInterval;
 
     public synchronized void setKieContainer(KieContainer kieContainer) {
         if (this.kieContainer != null) {
@@ -83,14 +76,13 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
             throw new RuntimeException("The KieContainer's ReleaseId cannot be null. Are you using a KieClasspathContainer?");
         }
 
+        artifactResolver = getResolverFor(this.kieContainer, true);
         kieProjectDescr = new DependencyDescriptor(this.kieContainer.getReleaseId(),
                                                    this.kieContainer.getCreationTimestamp());
-
-        artifactResolver = getResolverFor(this.kieContainer, true);
-        usedDependencies = indexAtifacts(artifactResolver);
+        usedDependencies = indexArtifacts();
 
         KieScannersRegistry.register(this);
-        status = Status.STOPPED;
+        changeStatus( Status.STOPPED );
         
         if( MBeanUtils.isMBeanEnabled() ) {
             mbean = new KieScannerMBeanImpl(this);
@@ -99,7 +91,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
 
     private ArtifactResolver getArtifactResolver() {
         if (artifactResolver == null) {
-            artifactResolver = new ArtifactResolver();
+            artifactResolver = ArtifactResolver.create();
         }
         return artifactResolver;
     }
@@ -135,40 +127,23 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
         return artifact != null ? artifact.getVersion() : null;
     }
 
-    public synchronized ReleaseId getScannerReleaseId() {
-        return kieContainer.getContainerReleaseId();
-    }
-
-    public synchronized ReleaseId getCurrentReleaseId() {
-        return kieContainer.getReleaseId();
-    }
-
-    public synchronized Status getStatus() {
-        return status;
-    }
-
     private KieModule loadPomArtifact(ReleaseId releaseId) {
-        ArtifactResolver resolver = getResolverFor(releaseId, false);
+        ArtifactResolver resolver = ArtifactResolver.getResolverFor(releaseId, false);
         if (resolver == null) {
             return null;
         }
 
         MemoryKieModule kieModule = new MemoryKieModule(releaseId);
         addDependencies(kieModule, resolver, resolver.getPomDirectDependencies( DependencyFilter.COMPILE_FILTER ));
-        build(kieModule);
         return kieModule;
     }
 
     private InternalKieModule buildArtifact(Artifact artifact, ArtifactResolver resolver) {
         DependencyDescriptor dependencyDescriptor = new DependencyDescriptor(artifact);
         ReleaseId releaseId = dependencyDescriptor.getReleaseId();
-        if (releaseId.isSnapshot()) {
-            ((ReleaseIdImpl)releaseId).setSnapshotVersion(artifact.getVersion());
-        }
-        ZipKieModule kieModule = createZipKieModule(releaseId, artifact.getFile());
+        InternalKieModule kieModule = createKieModule(releaseId, artifact.getFile());
         if (kieModule != null) {
             addDependencies(kieModule, resolver, resolver.getArtifactDependecies(dependencyDescriptor.toString()));
-            build(kieModule);
         }
         return kieModule;
     }
@@ -182,7 +157,7 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
                 Artifact depArtifact = resolver.resolveArtifact(dep.getReleaseId());
                 if (depArtifact != null && isKJar(depArtifact.getFile())) {
                     ReleaseId depReleaseId = new DependencyDescriptor(depArtifact).getReleaseId();
-                    ZipKieModule zipKieModule = createZipKieModule(depReleaseId, depArtifact.getFile());
+                    InternalKieModule zipKieModule = createKieModule(depReleaseId, depArtifact.getFile());
                     if (zipKieModule != null) {
                         kieModule.addKieDependency(zipKieModule);
                     }
@@ -191,140 +166,63 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
         }
     }
 
-    private static ZipKieModule createZipKieModule(ReleaseId releaseId, File jar) {
-        KieModuleModel kieModuleModel = getKieModuleModelFromJar(jar);
-        return kieModuleModel != null ? new ZipKieModule(releaseId, kieModuleModel, jar) : null;
+    @Override
+    protected Map<DependencyDescriptor, Artifact> internalScan() {
+        Map<DependencyDescriptor, Artifact> updatedArtifacts = scanForUpdates();
+        return updatedArtifacts.isEmpty() ? null : updatedArtifacts;
     }
 
-    private static KieModuleModel getKieModuleModelFromJar(File jar) {
-        ZipFile zipFile = null;
-        try {
-            zipFile = new ZipFile( jar );
-            ZipEntry zipEntry = zipFile.getEntry(KieModuleModelImpl.KMODULE_JAR_PATH);
-            KieModuleModel kieModuleModel = KieModuleModelImpl.fromXML(zipFile.getInputStream(zipEntry));
-            setDefaultsforEmptyKieModule(kieModuleModel);
-            return kieModuleModel;
-        } catch ( Exception e ) {
-        } finally {
-			if (zipFile != null) {
-				try {
-					zipFile.close();
-				} catch (IOException e) {
-				}
-			}
-        }
-        return null;
-    }
-
-    private ResultsImpl build(InternalKieModule kieModule) {
-        ResultsImpl messages = new ResultsImpl();
-        buildKieModule(kieModule, messages);
-        return messages;
-    }
-
-    public synchronized void start(long pollingInterval) {
-        if (getStatus() == Status.SHUTDOWN ) {
-            throw new IllegalStateException("The scanner was shut down and can no longer be started.");
-        }
-        if (pollingInterval <= 0) {
-            throw new IllegalArgumentException("pollingInterval must be positive");
-        }
-        if (timer != null) {
-            throw new IllegalStateException("The scanner is already running");
-        }
-        startScanTask(pollingInterval);
-    }
-
-    public synchronized void stop() {
-        if (getStatus() == Status.SHUTDOWN ) {
-            throw new IllegalStateException("The scanner was already shut down.");
-        }
-        if (timer != null) {
-            timer.cancel();
-            timer = null;
-        }
-        this.pollingInterval = 0;
-        status = Status.STOPPED;
-    }
-
-    public synchronized long getPollingInterval() {
-        return this.pollingInterval;
-    }
-    
-    public void shutdown() {
-        if( getStatus() != Status.SHUTDOWN ) {
-            stop(); // making sure it is stopped
-            status = Status.SHUTDOWN;
-        }
-    }
-
-    private void startScanTask(long pollingInterval) {
-        status = Status.RUNNING;
-        this.pollingInterval = pollingInterval;
-        timer = new Timer(true);
-        timer.schedule(new ScanTask(), pollingInterval, pollingInterval);
-    }
-
-    private class ScanTask extends TimerTask {
-        public void run() {
-            scanNow();
-            status = Status.RUNNING;
-        }
-    }
-
-    public synchronized void scanNow() {
-        if (getStatus() == Status.SHUTDOWN ) {
-            throw new IllegalStateException("The scanner was already shut down and can no longer be used.");
-        }
-        try {
-            status = Status.SCANNING;
-            Map<DependencyDescriptor, Artifact> updatedArtifacts = scanForUpdates();
-            if (updatedArtifacts.isEmpty()) {
-                status = Status.STOPPED;
-                return;
+    @Override
+    protected void internalUpdate( Map<DependencyDescriptor, Artifact> updatedArtifacts ) {
+        boolean allUpdatesSucceeded = true;
+        // build the dependencies first
+        Map.Entry<DependencyDescriptor, Artifact> containerEntry = null;
+        for (Map.Entry<DependencyDescriptor, Artifact> entry : updatedArtifacts.entrySet()) {
+            if (entry.getKey().isSameArtifact(kieContainer.getContainerReleaseId())) {
+                containerEntry = entry;
+            } else {
+                allUpdatesSucceeded = updateKieModule(entry.getKey(), entry.getValue()) && allUpdatesSucceeded;
             }
-            status = Status.UPDATING;
+        }
+        if (containerEntry != null) {
+            allUpdatesSucceeded = updateKieModule(containerEntry.getKey(), containerEntry.getValue()) && allUpdatesSucceeded;
+        }
 
-            // build the dependencies first
-            Map.Entry<DependencyDescriptor, Artifact> containerEntry = null;
-            for (Map.Entry<DependencyDescriptor, Artifact> entry : updatedArtifacts.entrySet()) {
-                if (entry.getKey().isSameArtifact(kieContainer.getContainerReleaseId())) {
-                    containerEntry = entry;
-                } else {
-                    updateKieModule(entry.getKey(), entry.getValue());
-                }
-            }
-            if (containerEntry != null) {
-                updateKieModule(containerEntry.getKey(), containerEntry.getValue());
-            }
-
+        if ( allUpdatesSucceeded ) {
             log.info("The following artifacts have been updated: " + updatedArtifacts);
-            
-            // show we catch exceptions here and shutdown the scanner if one happens?
-            
-        } finally {
-            status = Status.STOPPED;
+        } else {
+            log.error("Some errors occured while updating the following artifacts: " + updatedArtifacts);
         }
     }
 
-    private void updateKieModule(DependencyDescriptor oldDependency, Artifact artifact) {
-        ReleaseId newReleaseId = new DependencyDescriptor(artifact).getReleaseId();
-        ZipKieModule kieModule = createZipKieModule(newReleaseId, artifact.getFile());
+    private boolean updateKieModule(DependencyDescriptor oldDependency, Artifact artifact) {
+        ReleaseId newReleaseId = new DependencyDescriptor( artifact).getReleaseId();
+        InternalKieModule kieModule = createKieModule(newReleaseId, artifact.getFile());
         if (kieModule != null) {
             addDependencies(kieModule, artifactResolver, artifactResolver.getArtifactDependecies(newReleaseId.toString()));
-            ResultsImpl messages = build(kieModule);
+            ResultsImpl messages = kieModule.build();
             if ( messages.filterMessages(Message.Level.ERROR).isEmpty()) {
-                kieContainer.updateDependencyToVersion(oldDependency.getArtifactReleaseId(), newReleaseId);
+                Results updateMessages = kieContainer.updateDependencyToVersion(oldDependency.getArtifactReleaseId(), newReleaseId);
                 oldDependency.setArtifactVersion(artifact.getVersion());
+                messages.getMessages().addAll( updateMessages.getMessages() ); // append all update Results into build Results to notify listeners
             }
+            listeners.fireKieScannerUpdateResultsEventImpl(messages);
+            return !messages.hasMessages(Message.Level.ERROR);
         }
+        return false;
     }
 
     private Map<DependencyDescriptor, Artifact> scanForUpdates() {
         artifactResolver = getResolverFor(kieContainer, true);
-        Map<DependencyDescriptor, Artifact> newArtifacts = new HashMap<DependencyDescriptor, Artifact>();
 
-        Artifact newArtifact = artifactResolver.resolveArtifact(this.kieContainer.getContainerReleaseId());
+        if ( !kieProjectDescr.getReleaseId().equals( this.kieContainer.getReleaseId() ) ) {
+            kieProjectDescr = new DependencyDescriptor( this.kieContainer.getReleaseId(),
+                                                        this.kieContainer.getCreationTimestamp() );
+        }
+
+        Map<DependencyDescriptor, Artifact> newArtifacts = new HashMap<>();
+
+        Artifact newArtifact = artifactResolver.resolveArtifact(this.kieContainer.getConfiguredReleaseId());
         if (newArtifact != null) {
             DependencyDescriptor resolvedDep = new DependencyDescriptor(newArtifact);
             if (resolvedDep.isNewerThan(kieProjectDescr)) {
@@ -351,30 +249,37 @@ public class KieRepositoryScannerImpl implements InternalKieScanner {
         return newArtifacts;
     }
 
-    private Map<ReleaseId, DependencyDescriptor> indexAtifacts(ArtifactResolver artifactResolver) {
-        Map<ReleaseId, DependencyDescriptor> depsMap = new HashMap<ReleaseId, DependencyDescriptor>();
-        for (DependencyDescriptor dep : artifactResolver.getAllDependecies()) {
+    private Map<ReleaseId, DependencyDescriptor> indexArtifacts() {
+        Map<ReleaseId, DependencyDescriptor> depsMap = new HashMap<>();
+        for (DependencyDescriptor dep : artifactResolver.getAllDependecies(DEPENDENCY_SCOPEFILTER)) {
             Artifact artifact = artifactResolver.resolveArtifact(dep.getReleaseId());
-            log.debug( artifact + " resolved to  " + artifact.getFile() );
-            if (isKJar(artifact.getFile())) {
-                depsMap.put(dep.getReleaseIdWithoutVersion(), new DependencyDescriptor(artifact));
+            if (artifact != null) {
+                if ( log.isDebugEnabled() ) {
+                     log.debug( artifact + " resolved to  " + artifact.getFile() );
+                 }
+                 if ( isKJar( artifact.getFile() ) ) {
+                     depsMap.put( dep.getReleaseIdWithoutVersion(), new DependencyDescriptor( artifact ) );
+                 }
             }
         }
         return depsMap;
     }
 
     private boolean isKJar(File jar) {
-        ZipFile zipFile;
-        try {
-            zipFile = new ZipFile( jar );
+        try (ZipFile zipFile = new ZipFile( jar )) {
+            ZipEntry zipEntry = zipFile.getEntry( KieModuleModelImpl.KMODULE_JAR_PATH.asString() );
+            return zipEntry != null;
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to open Zip file '" + jar.getAbsolutePath() + "'!", e);
         }
-        ZipEntry zipEntry = zipFile.getEntry( KieModuleModelImpl.KMODULE_JAR_PATH );
-        return zipEntry != null;
+
     }
     
     public synchronized KieScannerMBean getMBean() {
         return this.mbean;
+    }
+
+    public static ArtifactResolver getResolverFor( InternalKieContainer kieContainer, boolean allowDefaultPom ) {
+        return ArtifactResolver.getResolverFor( kieContainer.getPomAsStream(), kieContainer.getReleaseId(), allowDefaultPom );
     }
 }

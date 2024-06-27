@@ -1,17 +1,21 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 package org.drools.games.wumpus.server;
 
@@ -35,9 +39,6 @@ import org.drools.games.wumpus.view.GameView
 import org.drools.games.wumpus.view.GameUI
 
 import java.util.ArrayList
-import org.kie.internal.logger.KnowledgeRuntimeLogger
-import org.kie.internal.logger.KnowledgeRuntimeLoggerFactory
-import org.kie.internal.runtime.StatefulKnowledgeSession
 
 global org.drools.games.wumpus.WumpusWorldConfiguration wumpusWorldConfiguration;
 
@@ -96,7 +97,7 @@ rule "Invalid Wumpus" agenda-group "Init" when
     Init()
     $w : Wumpus( row == 0, col == 0 )    
 then
-    retract( $w ); // retraction triggers the "not" CE
+    delete( $w ); // retraction triggers the "not" CE
 end    
 
 rule "Create Gold" agenda-group "Init" when
@@ -114,7 +115,7 @@ rule "Invalid Gold" agenda-group "Init" when
     $g : Gold( row == 0, col == 0 )  
     not Hero( gold == true ) // gold can be in row first square, if hero is carrying it
 then
-    retract( $g ); // retraction triggers the "not" CE
+    delete( $g ); // retraction triggers the "not" CE
 end   
 
 rule "Create Hero" agenda-group "Init"  when
@@ -128,7 +129,7 @@ end
 rule "Trigger Play" agenda-group "Init" when
     $i : Init()
 then
-    retract( $i );
+    delete( $i );
     insert( new Play() );
     insert( new SensorArray() );    
 end

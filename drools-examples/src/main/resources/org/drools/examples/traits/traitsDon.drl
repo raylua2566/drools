@@ -1,23 +1,26 @@
-/*
- * Copyright 2011 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.examples.traits
 
 declare Person
     @Traitable
+    @PropertyReactive
 
     name    : String       = "john"     @key
 
@@ -29,6 +32,7 @@ end
 
 
 declare trait IPerson
+    @PropertyReactive
 
     name    : String
 
@@ -40,12 +44,14 @@ end
 
 
 declare trait IStudent extends IPerson
+    @PropertyReactive
 
     school  : String
 end
 
 
 declare trait IWorker extends IPerson
+    @PropertyReactive
 
     wage    : int
 end
@@ -59,23 +65,24 @@ end
 
 
 rule "Students and Workers"
-no-loop
 when
-    $p : Person( $name : name, $age : age < 25, $weight : weight )
+    $p : Person( $name : name, $age : age < 25 )
 then
     IStudent s = don( $p, IStudent.class, true );
-        s.setSchool( "SomeSchool" );
-    update( s );
+    modify( s ) {
+        setSchool( "SomeSchool" );
+    }
 
     IWorker w = don( $p, IWorker.class, true );
-        w.setWage( 1200 );
-    update( w );
+    modify( w ) {
+        setWage( 1200 );
+    }
+
 end
 
 
 rule "Welcome"
 salience 10
-no-loop
 when
     $s : IStudent( $school : school, $name : name )
 then
@@ -84,19 +91,20 @@ end
 
 
 
-
+/* This rule will raise the wage up to 2000 */
 rule "Hard toil"
 salience 5
-no-loop
+// no-loop /* with no-loop, the raise will happen only once! */
 when
-    $w : IWorker( $name : name, $weight : weight, $wage : wage )
+    $w : IWorker( $name : name, $weight : weight, $wage : wage < 2000 )
 then
-    System.out.println( "Work harder, " + $name );
 
-    $w.setWage( $wage + 100 );
-    $w.setWeight( $weight - 10 );
+    modify( $w ) {
+        setWage( $wage + 100 ),
+        setWeight( $weight - 10 );
+    }
 
-    update( $w );
+    System.out.println( "Work harder, " + $name + ", your wage is now " + $w.getWage() );
 end
 
 

@@ -1,19 +1,21 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.benchmark.waltz;
 
 import java.io.BufferedReader;
@@ -23,16 +25,16 @@ import java.util.Collection;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.drools.core.util.IoUtils;
+import org.drools.kiesession.rulebase.InternalKnowledgeBase;
+import org.drools.util.IoUtils;
+import org.drools.kiesession.rulebase.KnowledgeBaseFactory;
+import org.kie.api.definition.KiePackage;
 import org.kie.api.io.ResourceType;
+import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.rule.RuleRuntime;
-import org.kie.internal.KnowledgeBase;
-import org.kie.internal.KnowledgeBaseFactory;
 import org.kie.internal.builder.KnowledgeBuilder;
 import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.definition.KnowledgePackage;
 import org.kie.internal.io.ResourceFactory;
-import org.kie.internal.runtime.StatefulKnowledgeSession;
 
 /**
  * This is a sample file to launch a rule package from a rule source file.
@@ -44,14 +46,14 @@ public abstract class WaltzBenchmark {
         kbuilder.add( ResourceFactory.newClassPathResource("waltz.drl",
                 WaltzBenchmark.class),
                               ResourceType.DRL );
-        Collection<KnowledgePackage> pkgs = kbuilder.getKnowledgePackages();
+        Collection<KiePackage> pkgs = kbuilder.getKnowledgePackages();
         //add the package to a kbase
-        final KnowledgeBase kbase = KnowledgeBaseFactory.newKnowledgeBase();
-        kbase.addKnowledgePackages( pkgs );
+        final InternalKnowledgeBase kbase = KnowledgeBaseFactory.newKnowledgeBase();
+        kbase.addPackages( pkgs );
 
         long totalTime = 0;
         for ( int i = 0; i < 5; i++ ) {
-            StatefulKnowledgeSession session = kbase.newStatefulKnowledgeSession();
+            KieSession session = kbase.newKieSession();
     
             String filename;
             if ( args.length != 0 ) {

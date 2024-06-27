@@ -1,44 +1,46 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.common;
-
-import org.drools.core.base.ClassObjectType;
-import org.drools.core.definitions.InternalKnowledgePackage;
-import org.drools.core.definitions.rule.impl.RuleImpl;
-import org.drools.core.marshalling.impl.MarshallerReaderContext;
-import org.drools.core.reteoo.LeftTuple;
-import org.drools.core.reteoo.PropertySpecificUtil;
-import org.drools.core.reteoo.TerminalNode;
-import org.drools.core.rule.EntryPointId;
-import org.drools.core.rule.TypeDeclaration;
-import org.drools.core.spi.ObjectType;
-import org.drools.core.spi.PropagationContext;
-import org.drools.core.spi.Tuple;
-import org.drools.core.util.bitmask.BitMask;
-import org.kie.api.runtime.rule.FactHandle;
 
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.util.Collections;
-import java.util.LinkedList;
 import java.util.List;
 
-import static org.drools.core.reteoo.PropertySpecificUtil.*;
+import org.drools.base.base.ClassObjectType;
+import org.drools.base.base.ObjectType;
+import org.drools.base.definitions.InternalKnowledgePackage;
+import org.drools.base.definitions.rule.impl.RuleImpl;
+import org.drools.base.reteoo.PropertySpecificUtil;
+import org.drools.base.rule.EntryPointId;
+import org.drools.base.rule.TypeDeclaration;
+import org.drools.core.marshalling.MarshallerReaderContext;
+import org.drools.core.reteoo.TerminalNode;
+import org.drools.util.bitmask.BitMask;
+import org.kie.api.runtime.rule.FactHandle;
+
+import static org.drools.base.reteoo.PropertySpecificUtil.allSetBitMask;
+import static org.drools.base.reteoo.PropertySpecificUtil.getEmptyPropertyReactiveMask;
+import static org.drools.base.reteoo.PropertySpecificUtil.isAllSetPropertyReactiveMask;
+import static org.drools.base.reteoo.PropertySpecificUtil.isPropertySetOnMask;
+import static org.drools.base.reteoo.PropertySpecificUtil.setPropertyOnMask;
 
 public class PhreakPropagationContext
         implements
@@ -46,29 +48,23 @@ public class PhreakPropagationContext
 
     private static final long               serialVersionUID = 510l;
 
-    private int                             type;
+    private Type                            type;
 
     private RuleImpl                        rule;
 
     private TerminalNode                    terminalNodeOrigin;
 
-    private Tuple                           leftTuple;
-
-    private InternalFactHandle              factHandle;
+    private FactHandle                      factHandle;
 
     private long                            propagationNumber;
 
     private EntryPointId                    entryPoint;
 
-    private int                             originOffset;
+    private BitMask                         modificationMask = allSetBitMask();
 
-    private BitMask                         modificationMask = allSetButTraitBitMask();
-
-    private BitMask                         originalMask = allSetButTraitBitMask();
+    private BitMask                         originalMask = allSetBitMask();
 
     private Class<?>                        modifiedClass;
-
-    private ObjectType                      objectType;
 
     // this field is only set for propagations happening during
     // the deserialization of a session
@@ -79,81 +75,60 @@ public class PhreakPropagationContext
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
-                                    final Tuple leftTuple,
+                                    final TerminalNode terminalNode,
                                     final InternalFactHandle factHandle) {
         this( number,
               type,
               rule,
-              leftTuple,
+              terminalNode,
               factHandle,
               EntryPointId.DEFAULT,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               null );
-        this.originOffset = -1;
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
-                                    final Tuple leftTuple,
+                                    final TerminalNode terminalNode,
                                     final InternalFactHandle factHandle,
                                     final EntryPointId entryPoint) {
         this( number,
               type,
               rule,
-              leftTuple,
+              terminalNode,
               factHandle,
               entryPoint,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               null );
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
-                                    final Tuple leftTuple,
-                                    final InternalFactHandle factHandle,
-                                    final int activeActivations,
-                                    final int dormantActivations,
-                                    final EntryPointId entryPoint,
-                                    final BitMask modificationMask) {
-        this( number,
-              type,
-              rule,
-              leftTuple,
-              factHandle,
-              entryPoint,
-              modificationMask,
-              Object.class,
-              null );
-    }
-
-    public PhreakPropagationContext(final long number,
-                                    final int type,
-                                    final RuleImpl rule,
-                                    final Tuple leftTuple,
+                                    final TerminalNode terminalNode,
                                     final InternalFactHandle factHandle,
                                     final EntryPointId entryPoint,
                                     final MarshallerReaderContext readerContext) {
         this( number,
               type,
               rule,
-              leftTuple,
+              terminalNode,
               factHandle,
               entryPoint,
-              allSetButTraitBitMask(),
+              allSetBitMask(),
               Object.class,
               readerContext );
     }
 
     public PhreakPropagationContext(final long number,
-                                    final int type,
+                                    final Type type,
                                     final RuleImpl rule,
-                                    final Tuple leftTuple,
+                                    final TerminalNode terminalNode,
                                     final InternalFactHandle factHandle,
                                     final EntryPointId entryPoint,
                                     final BitMask modificationMask,
@@ -161,12 +136,10 @@ public class PhreakPropagationContext
                                     final MarshallerReaderContext readerContext) {
         this.type = type;
         this.rule = rule;
-        this.leftTuple = leftTuple;
-        this.terminalNodeOrigin = leftTuple != null ? (TerminalNode)leftTuple.getTupleSink() : null;
+        this.terminalNodeOrigin = terminalNode;
         this.factHandle = factHandle;
         this.propagationNumber = number;
         this.entryPoint = entryPoint;
-        this.originOffset = -1;
         this.modificationMask = modificationMask;
         this.originalMask = modificationMask;
         this.modifiedClass = modifiedClass;
@@ -175,22 +148,18 @@ public class PhreakPropagationContext
 
     public void readExternal(ObjectInput in) throws IOException,
                                             ClassNotFoundException {
-        this.type = in.readInt();
+        this.type = (Type) in.readObject();
         this.propagationNumber = in.readLong();
         this.rule = (RuleImpl) in.readObject();
-        this.leftTuple = (LeftTuple) in.readObject();
         this.entryPoint = (EntryPointId) in.readObject();
-        this.originOffset = in.readInt();
         this.modificationMask = (BitMask) in.readObject();
     }
 
     public void writeExternal(ObjectOutput out) throws IOException {
-        out.writeInt( this.type );
+        out.writeObject( this.type );
         out.writeLong( this.propagationNumber );
         out.writeObject( this.rule );
-        out.writeObject( this.leftTuple );
         out.writeObject( this.entryPoint );
-        out.writeInt( this.originOffset );
         out.writeObject(this.modificationMask);
     }
 
@@ -215,34 +184,16 @@ public class PhreakPropagationContext
         return terminalNodeOrigin;
     }
 
-    public org.kie.api.definition.rule.Rule getRule() {
-        return this.rule;
-    }
-
-    public Tuple getLeftTupleOrigin() {
-        return this.leftTuple;
-    }
-
     public FactHandle getFactHandle() {
         return this.factHandle;
     }
     
     public void setFactHandle(FactHandle factHandle) {
-        this.factHandle = (InternalFactHandle) factHandle;
+        this.factHandle = factHandle;
     }    
 
-    /*
-     * (non-Javadoc)
-     *
-     * @see org.kie.reteoo.PropagationContext#getType()
-     */
-    public int getType() {
+    public Type getType() {
         return this.type;
-    }
-
-    public void releaseResources() {
-        this.leftTuple = null;
-        //this.rule = null;
     }
 
     /**
@@ -259,47 +210,11 @@ public class PhreakPropagationContext
         this.entryPoint = entryPoint;
     }
 
-    public void setFactHandle(InternalFactHandle factHandle) {
-        this.factHandle = factHandle;
-    }
-
-    public int getOriginOffset() {
-        return originOffset;
-    }
-
-    public void setOriginOffset(int originOffset) {
-        this.originOffset = originOffset;
-    }
-
-    public void addInsertAction(WorkingMemoryAction action) {
-        throw new UnsupportedOperationException("rete only method");
-    }
-
-    public void removeInsertAction(WorkingMemoryAction action) {
-        throw new UnsupportedOperationException("rete only method");
-    }
-    
-    public LinkedList<WorkingMemoryAction> getQueue1() {
-        throw new UnsupportedOperationException("rete only method");
-    }
-
-    public LinkedList<WorkingMemoryAction> getQueue2() {
-        throw new UnsupportedOperationException("rete only method");
-    }
-
-    public void evaluateActionQueue(InternalWorkingMemory workingMemory) {
-        // return, do nothing, this is for rete only
-    }
-
     public BitMask getModificationMask() {
         return modificationMask;
     }
 
-    public void setModificationMask( BitMask modificationMask ) {
-        this.modificationMask = modificationMask;
-    }
-
-    public PropagationContext adaptModificationMaskForObjectType(ObjectType type, InternalWorkingMemory workingMemory) {
+    public PropagationContext adaptModificationMaskForObjectType(ObjectType type, ReteEvaluator reteEvaluator) {
         if (isAllSetPropertyReactiveMask(originalMask) || originalMask.isSet(PropertySpecificUtil.TRAITABLE_BIT) || !(type instanceof ClassObjectType)) {
             return this;
         }
@@ -307,13 +222,13 @@ public class PhreakPropagationContext
         BitMask cachedMask = classObjectType.getTransformedMask(modifiedClass, originalMask);
 
         if (cachedMask != null) {
+            modificationMask = cachedMask;
             return this;
         }
 
         modificationMask = originalMask;
         boolean typeBit = modificationMask.isSet(PropertySpecificUtil.TRAITABLE_BIT);
         modificationMask = modificationMask.reset(PropertySpecificUtil.TRAITABLE_BIT);
-
 
         Class<?> classType = classObjectType.getClassType();
         String pkgName = classType.getPackage().getName();
@@ -325,8 +240,8 @@ public class PhreakPropagationContext
             return this;
         }
 
-        List<String> typeClassProps = getSettableProperties(workingMemory, classType, pkgName);
-        List<String> modifiedClassProps = getSettableProperties( workingMemory, modifiedClass );
+        List<String> typeClassProps = getAccessibleProperties( reteEvaluator, classType, pkgName );
+        List<String> modifiedClassProps = getAccessibleProperties( reteEvaluator, modifiedClass );
         modificationMask = getEmptyPropertyReactiveMask(typeClassProps.size());
 
         for (int i = 0; i < modifiedClassProps.size(); i++) {
@@ -347,46 +262,36 @@ public class PhreakPropagationContext
         return this;
     }
 
-    private List<String> getSettableProperties(InternalWorkingMemory workingMemory, Class<?> classType) {
-        return getSettableProperties(workingMemory, classType, classType.getPackage().getName());
+    private List<String> getAccessibleProperties( ReteEvaluator reteEvaluator, Class<?> classType ) {
+        return getAccessibleProperties( reteEvaluator, classType, classType.getPackage().getName() );
     }
 
-    private List<String> getSettableProperties(InternalWorkingMemory workingMemory, Class<?> classType, String pkgName) {
+    private List<String> getAccessibleProperties( ReteEvaluator reteEvaluator, Class<?> classType, String pkgName ) {
         if ( pkgName.equals( "java.lang" ) || pkgName.equals( "java.util" ) ) {
             return Collections.EMPTY_LIST;
         }
-        InternalKnowledgePackage pkg = workingMemory.getKnowledgeBase().getPackage( pkgName );
+        InternalKnowledgePackage pkg = reteEvaluator.getKnowledgeBase().getPackage( pkgName );
         TypeDeclaration tdecl =  pkg != null ? pkg.getTypeDeclaration( classType ) : null;
-        return tdecl != null ? tdecl.getSettableProperties() : Collections.EMPTY_LIST;
-    }
-
-    public ObjectType getObjectType() {
-        return objectType;
-    }
-
-    public void setObjectType(ObjectType objectType) {
-        this.objectType = objectType;
+        return tdecl != null ? tdecl.getAccessibleProperties() : Collections.EMPTY_LIST;
     }
 
     public MarshallerReaderContext getReaderContext() {
         return this.readerContext;
     }
 
-
-    public static String intEnumToString(PropagationContext pctx) {
-        String pctxType = null;
+    public static String intEnumToString( PropagationContext pctx ) {
         switch( pctx.getType() ) {
-            case PropagationContext.INSERTION:
+            case INSERTION:
                 return "INSERTION";
-            case PropagationContext.RULE_ADDITION:
+            case RULE_ADDITION:
                 return "RULE_ADDITION";
-            case PropagationContext.MODIFICATION:
+            case MODIFICATION:
                 return "MODIFICATION";
-            case PropagationContext.RULE_REMOVAL:
+            case RULE_REMOVAL:
                 return "RULE_REMOVAL";
-            case PropagationContext.DELETION:
+            case DELETION:
                 return "DELETION";
-            case PropagationContext.EXPIRATION:
+            case EXPIRATION:
                 return "EXPIRATION";
         }
         throw new IllegalStateException( "Int type unknown");
@@ -394,7 +299,7 @@ public class PhreakPropagationContext
 
     @Override
     public String toString() {
-        return "PhreakPropagationContext [entryPoint=" + entryPoint + ", factHandle=" + factHandle + ", leftTuple=" + leftTuple + ", originOffset="
-               + originOffset + ", propagationNumber=" + propagationNumber + ", rule=" + rule + ", type=" + type + "]";
+        return "PhreakPropagationContext [entryPoint=" + entryPoint + ", factHandle=" + factHandle +
+                ", propagationNumber=" + propagationNumber + ", rule=" + rule + ", type=" + type + "]";
     }
 }

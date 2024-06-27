@@ -1,55 +1,56 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.compiler.kie.builder.impl;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.drools.compiler.compiler.io.memory.MemoryFileSystem;
-import org.drools.compiler.kproject.ReleaseIdImpl;
 import org.drools.compiler.kproject.models.KieModuleModelImpl;
-import org.drools.compiler.kproject.xml.PomModel;
-import org.drools.core.io.internal.InternalResource;
+import org.drools.io.InternalResource;
 import org.kie.api.builder.KieModule;
 import org.kie.api.builder.KieRepository;
 import org.kie.api.builder.KieScannerFactoryService;
 import org.kie.api.builder.ReleaseId;
+import org.kie.api.builder.ReleaseIdComparator.ComparableVersion;
 import org.kie.api.builder.model.KieModuleModel;
+import org.kie.api.event.kiescanner.KieScannerEventListener;
+import org.kie.api.internal.utils.KieService;
 import org.kie.api.io.Resource;
 import org.kie.api.runtime.KieContainer;
-import org.kie.internal.utils.ServiceRegistryImpl;
+import org.kie.util.maven.support.PomModel;
+import org.kie.util.maven.support.ReleaseIdImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.math.BigInteger;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.ListIterator;
-import java.util.Locale;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Properties;
-import java.util.Stack;
-import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicReference;
-
 import static org.drools.compiler.kie.builder.impl.KieBuilderImpl.setDefaultsforEmptyKieModule;
+import static org.kie.util.maven.support.ReleaseIdImpl.fromPropertiesStream;
 
 public class KieRepositoryImpl
         implements
@@ -57,24 +58,48 @@ public class KieRepositoryImpl
 
     private static final Logger log = LoggerFactory.getLogger(KieRepositoryImpl.class);
 
-    private static final String DEFAULT_VERSION = "1.0.0-SNAPSHOT";
+    private static final String DEFAULT_VERSION = "1.0.0";
     private static final String DEFAULT_ARTIFACT = "artifact";
     private static final String DEFAULT_GROUP = "org.default";
+
+    private final AtomicReference<ReleaseId> defaultGAV = new AtomicReference(new ReleaseIdImpl(DEFAULT_GROUP,
+                                                                                                DEFAULT_ARTIFACT,
+                                                                                                DEFAULT_VERSION));
 
     public static final KieRepository INSTANCE = new KieRepositoryImpl();
 
     private final KieModuleRepo kieModuleRepo;
 
-    private InternalKieScanner internalKieScanner;
-
-    public KieRepositoryImpl() {
-        internalKieScanner = getInternalKieScanner();
-        kieModuleRepo = new KieModuleRepo(internalKieScanner);
+    public static void setInternalKieScanner(InternalKieScanner scanner) {
+        synchronized (KieScannerHolder.class) {
+            KieScannerHolder.kieScanner = scanner;
+        }
     }
 
-    private final AtomicReference<ReleaseId> defaultGAV = new AtomicReference(new ReleaseIdImpl(DEFAULT_GROUP,
-                                                                                                DEFAULT_ARTIFACT,
-                                                                                                DEFAULT_VERSION));
+    private static class KieScannerHolder {
+        // Use holder class idiom to lazily initialize the kieScanner
+        private static volatile InternalKieScanner kieScanner = getInternalKieScanner();
+
+        private static InternalKieScanner getInternalKieScanner() {
+            synchronized (KieScannerHolder.class) {
+                if ( kieScanner != null ) {
+                    return kieScanner;
+                }
+                try {
+                    KieScannerFactoryService scannerFactoryService = KieService.load(KieScannerFactoryService.class);
+                    return (InternalKieScanner) scannerFactoryService.newKieScanner();
+                } catch (Exception e) {
+                    log.debug( "Cannot load a KieRepositoryScanner, using the DummyKieScanner" );
+                    // kie-ci is not on the classpath
+                    return new DummyKieScanner();
+                }
+            }
+        }
+    }
+
+    public KieRepositoryImpl() {
+        kieModuleRepo = new KieModuleRepo();
+    }
 
     public void setDefaultGAV(ReleaseId releaseId) {
         this.defaultGAV.set(releaseId);
@@ -86,7 +111,7 @@ public class KieRepositoryImpl
 
     public void addKieModule(KieModule kieModule) {
         kieModuleRepo.store(kieModule);
-        log.info("KieModule was added: " + kieModule);
+        log.debug("KieModule was added: " + kieModule);
     }
 
     public KieModule getKieModule(ReleaseId releaseId) {
@@ -103,7 +128,7 @@ public class KieRepositoryImpl
     }
 
     public KieModule getKieModule(ReleaseId releaseId, PomModel pomModel) {
-        KieModule kieModule = kieModuleRepo.load(releaseId);
+        KieModule kieModule = kieModuleRepo.load( KieScannerHolder.kieScanner, releaseId );
         if (kieModule == null) {
             log.debug("KieModule Lookup. ReleaseId {} was not in cache, checking classpath",
                       releaseId.toExternalForm());
@@ -120,27 +145,54 @@ public class KieRepositoryImpl
     }
 
     private KieModule checkClasspathForKieModule(ReleaseId releaseId) {
-        // TODO
-        // ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        // URL url = classLoader.getResource( ((ReleaseIdImpl)releaseId).getPomPropertiesPath() );
+        ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+
+        URL kmoduleUrl = contextClassLoader.getResource( KieModuleModelImpl.KMODULE_JAR_PATH.asString() );
+        if (kmoduleUrl == null) {
+            return null;
+        }
+
+        String pomPropertiesPath = ReleaseIdImpl.getPomPropertiesPath(releaseId);
+        URL pomPropertiesUrl = contextClassLoader.getResource( pomPropertiesPath );
+        if (pomPropertiesUrl == null) {
+            return null;
+        }
+
+        ReleaseId pomReleaseId = fromPropertiesStream( contextClassLoader.getResourceAsStream(pomPropertiesPath),
+                                                       pomPropertiesUrl.getPath());
+        if (pomReleaseId.equals(releaseId)) {
+            String path = pomPropertiesUrl.getPath();
+            String pathToJar = path.substring( 0, path.indexOf( ".jar!" ) + 4 );
+
+            URL pathToKmodule;
+            try {
+                pathToKmodule = new URL( pomPropertiesUrl.getProtocol(),
+                                         pomPropertiesUrl.getHost(),
+                                         pomPropertiesUrl.getPort(),
+                                         pathToJar + "!/" + KieModuleModelImpl.KMODULE_JAR_PATH.asString() );
+                
+                // URLConnection.getContentLength() returns -1 if the content length is not known, unable to locate and read from the kmodule
+                // if URL backed by 'file:' then FileURLConnection.getContentLength() returns 0, as per java.io.File.length() returns 0L if the file does not exist. (the same also for WildFly's VFS FileURLConnection) 
+                if ( pathToKmodule.openConnection().getContentLength() <= 0 ) {
+                    return null;
+                }
+            } catch (MalformedURLException e) {
+                log.error( "Unable to reconstruct path to kmodule for " + releaseId );
+                return null;
+            } catch (IOException e) {
+                log.error( "Unable to read from path to kmodule for " + releaseId );
+                return null;
+            }
+
+            log.info( "Adding KieModule from classpath: " + pathToJar );
+            return ClasspathKieProject.fetchKModule( pathToKmodule );
+        }
+
         return null;
     }
 
     private KieModule loadKieModuleFromMavenRepo(ReleaseId releaseId, PomModel pomModel) {
-        return getInternalKieScanner().loadArtifact(releaseId, pomModel);
-    }
-
-    private InternalKieScanner getInternalKieScanner() {
-        if (internalKieScanner == null) {
-            try {
-                KieScannerFactoryService scannerFactoryService = ServiceRegistryImpl.getInstance().get( KieScannerFactoryService.class );
-                internalKieScanner = (InternalKieScanner)scannerFactoryService.newKieScanner();
-            } catch (Exception e) {
-                // kie-ci is not on the classpath
-                internalKieScanner = new DummyKieScanner();
-            }
-        }
-        return internalKieScanner;
+        return KieScannerHolder.kieScanner.loadArtifact( releaseId, pomModel );
     }
 
     private static class DummyKieScanner
@@ -158,19 +210,27 @@ public class KieRepositoryImpl
         public void setKieContainer(KieContainer kieContainer) { }
 
         public KieModule loadArtifact(ReleaseId releaseId) {
+            logArtifactNotFetched(releaseId);
             return null;
         }
 
         public KieModule loadArtifact(ReleaseId releaseId, InputStream pomXML) {
+            logArtifactNotFetched(releaseId);
             return null;
         }
 
         public KieModule loadArtifact(ReleaseId releaseId, PomModel pomModel) {
+            logArtifactNotFetched(releaseId);
             return null;
         }
 
         public String getArtifactVersion(ReleaseId releaseId) {
+            logArtifactNotFetched(releaseId);
             return null;
+        }
+
+        private void logArtifactNotFetched(ReleaseId releaseId) {
+            log.info("Artifact not fetched from maven: " + releaseId + ". To enable the KieScanner you need kie-ci on the classpath");
         }
 
         public ReleaseId getScannerReleaseId() {
@@ -186,6 +246,14 @@ public class KieRepositoryImpl
         }
 
         public long getPollingInterval() { return 0; }
+
+        public void addListener(KieScannerEventListener listener) { }
+
+        public void removeListener(KieScannerEventListener listener) { }
+
+        public Collection<KieScannerEventListener> getListeners() {
+            return Collections.emptyList();
+        }
     }
 
     public KieModule addKieModule(Resource resource, Resource... dependencies) {
@@ -195,7 +263,7 @@ public class KieRepositoryImpl
             for (Resource depRes : dependencies) {
                 InternalKieModule depKModule = (InternalKieModule) getKieModule(depRes);
                 ((InternalKieModule) kModule).addKieDependency(depKModule);
-                log.info("Adding KieModule dependency from resource: " + resource);
+                log.debug("Adding KieModule dependency from resource: " + resource);
             }
         }
 
@@ -214,10 +282,10 @@ public class KieRepositoryImpl
                     if (!urlPath.endsWith("/")) {
                         urlPath = urlPath + "/";
                     }
-                    urlPath = urlPath + KieModuleModelImpl.KMODULE_JAR_PATH;
+                    urlPath = urlPath + KieModuleModelImpl.KMODULE_JAR_PATH.asString();
 
                 } else {
-                    urlPath = "jar:" + urlPath + "!/" + KieModuleModelImpl.KMODULE_JAR_PATH;
+                    urlPath = "jar:" + urlPath + "!/" + KieModuleModelImpl.KMODULE_JAR_PATH.asString();
                 }
                 kModule = ClasspathKieProject.fetchKModule(new URL(urlPath));
                 log.debug("Fetched KieModule from resource: " + resource);
@@ -230,7 +298,7 @@ public class KieRepositoryImpl
 
                 String pomProperties = mfs.findPomProperties();
                 ReleaseId releaseId = ReleaseIdImpl.fromPropertiesString(pomProperties);
-                kModule = new MemoryKieModule(releaseId, kieProject, mfs);
+                kModule = InternalKieModuleProvider.get( releaseId, kieProject, mfs );
             }
             return kModule;
         } catch (Exception e) {
@@ -248,24 +316,22 @@ public class KieRepositoryImpl
      *    so we're using synchronized methods instead
      */
     // package scope so that we can test it
-    static class KieModuleRepo {
+    public static class KieModuleRepo {
 
         // PROPERTIES -------------------------------------------------------------------------------------------------------------
 
         public static final String CACHE_GA_MAX_PROPERTY = "kie.repository.project.cache.size";
-        static final int MAX_SIZE_GA_CACHE // made changeable for test purposes
+        public static int MAX_SIZE_GA_CACHE // made changeable for test purposes
             = Integer.parseInt(System.getProperty(CACHE_GA_MAX_PROPERTY, "100"));
 
         public static final String CACHE_VERSIONS_MAX_PROPERTY = "kie.repository.project.versions.cache.size";
-        static final int MAX_SIZE_GA_VERSIONS_CACHE // made changeable for test purposes
+        public static int MAX_SIZE_GA_VERSIONS_CACHE // made changeable for test purposes
             = Integer.parseInt(System.getProperty(CACHE_VERSIONS_MAX_PROPERTY, "10"));
 
         // FIELDS -----------------------------------------------------------------------------------------------------------------
 
-        private final InternalKieScanner kieScanner;
-
         // kieModules evicts based on access-time, not on insertion-time
-        final Map<String, NavigableMap<ComparableVersion, KieModule>> kieModules
+        public final Map<String, NavigableMap<ComparableVersion, KieModule>> kieModules
             = new LinkedHashMap<String, NavigableMap<ComparableVersion, KieModule>>(16, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry( Map.Entry<String, NavigableMap<ComparableVersion, KieModule>> eldest) {
@@ -273,7 +339,7 @@ public class KieRepositoryImpl
             }
         };
 
-        final LinkedHashMap<ReleaseId, KieModule> oldKieModules = new LinkedHashMap<ReleaseId, KieModule>() {
+        public final LinkedHashMap<ReleaseId, KieModule> oldKieModules = new LinkedHashMap<ReleaseId, KieModule>() {
             @Override
             protected boolean removeEldestEntry( Map.Entry<ReleaseId, KieModule> eldest ) {
                 return size() > (MAX_SIZE_GA_CACHE*MAX_SIZE_GA_VERSIONS_CACHE);
@@ -283,11 +349,7 @@ public class KieRepositoryImpl
 
         // METHODS ----------------------------------------------------------------------------------------------------------------
 
-        KieModuleRepo(InternalKieScanner kieScanner) {
-            this.kieScanner = kieScanner;
-        }
-
-        synchronized KieModule remove(ReleaseId releaseId) {
+        public synchronized KieModule remove(ReleaseId releaseId) {
             KieModule removedKieModule = null;
             String ga = releaseId.getGroupId() + ":" + releaseId.getArtifactId();
             ComparableVersion comparableVersion = new ComparableVersion(releaseId.getVersion());
@@ -304,7 +366,7 @@ public class KieRepositoryImpl
             return removedKieModule;
         }
 
-        synchronized void store(KieModule kieModule) {
+        public synchronized void store(KieModule kieModule) {
             ReleaseId releaseId = kieModule.getReleaseId();
             String ga = releaseId.getGroupId() + ":" + releaseId.getArtifactId();
             ComparableVersion comparableVersion = new ComparableVersion(releaseId.getVersion());
@@ -328,7 +390,7 @@ public class KieRepositoryImpl
 
         /**
          * Returns a map that fulfills 2 purposes: <ol>
-         * <li>It is a {@link NavigableMap} and thus can be used in the {@link KieModuleRepo#load(ReleaseId, VersionRange)} method</li>
+         * <li>It is a {@link NavigableMap} and thus can be used in the {@link KieModuleRepo#load(InternalKieScanner, ReleaseId, VersionRange)} method</li>
          * <li>It is a LRU cache, and thus will not grow without limit.
          * </ol>
          * @return a {@link NavigableMap} that is "backed" by a {@link LinkedHashMap} to enforce a LRU cache
@@ -338,7 +400,7 @@ public class KieRepositoryImpl
 
                 private final Map<ComparableVersion, KieModule> artifactMap = this;
 
-                LinkedHashMap<ComparableVersion, Object> backingLRUMap = new LinkedHashMap<KieRepositoryImpl.ComparableVersion, Object>(16, 0.75f, true) {
+                LinkedHashMap<ComparableVersion, Object> backingLRUMap = new LinkedHashMap<ComparableVersion, Object>(16, 0.75f, true) {
                     @Override
                     protected boolean removeEldestEntry( Map.Entry<ComparableVersion, Object> eldest ) {
                         boolean remove = (size() > MAX_SIZE_GA_VERSIONS_CACHE);
@@ -363,11 +425,11 @@ public class KieRepositoryImpl
             return oldKieModules.remove(releaseId);
         }
 
-        synchronized KieModule load(ReleaseId releaseId) {
-            return load(releaseId, new VersionRange(releaseId.getVersion()));
+        synchronized KieModule load(InternalKieScanner kieScanner, ReleaseId releaseId) {
+            return load(kieScanner, releaseId, new VersionRange(releaseId.getVersion()));
         }
 
-        synchronized KieModule load(ReleaseId releaseId, VersionRange versionRange) {
+        synchronized KieModule load(InternalKieScanner kieScanner, ReleaseId releaseId, VersionRange versionRange) {
             String ga = releaseId.getGroupId() + ":" + releaseId.getArtifactId();
 
             NavigableMap<ComparableVersion, KieModule> artifactMap = kieModules.get(ga);
@@ -463,347 +525,4 @@ public class KieRepositoryImpl
         }
     }
 
-    public static class ComparableVersion implements Comparable<ComparableVersion> {
-
-        private String value;
-
-        private String canonical;
-
-        private ListItem items;
-
-        private interface Item {
-
-            int INTEGER_ITEM = 0;
-            int STRING_ITEM = 1;
-            int LIST_ITEM = 2;
-
-            int compareTo(Item item);
-
-            int getType();
-
-            boolean isNull();
-        }
-
-        private static class IntegerItem implements Item {
-
-            private static final BigInteger BigInteger_ZERO = new BigInteger("0");
-
-            private final BigInteger value;
-
-            public static final IntegerItem ZERO = new IntegerItem();
-
-            private IntegerItem() {
-                this.value = BigInteger_ZERO;
-            }
-
-            public IntegerItem(String str) {
-                this.value = new BigInteger(str);
-            }
-
-            public int getType() {
-                return INTEGER_ITEM;
-            }
-
-            public boolean isNull() {
-                return BigInteger_ZERO.equals(value);
-            }
-
-            public int compareTo(Item item) {
-                if (item == null)
-                {
-                    return BigInteger_ZERO.equals(value) ? 0 : 1; // 1.0 == 1, 1.1 > 1
-                }
-
-                switch (item.getType())
-                {
-                    case INTEGER_ITEM:
-                        return value.compareTo(((IntegerItem) item).value);
-
-                    case STRING_ITEM:
-                        return 1; // 1.1 > 1-sp
-
-                    case LIST_ITEM:
-                        return 1; // 1.1 > 1-1
-
-                    default:
-                        throw new RuntimeException("invalid item: " + item.getClass());
-                }
-            }
-
-            public String toString() {
-                return value.toString();
-            }
-        }
-
-        /**
-         * Represents a string in the version item list, usually a qualifier.
-         */
-        private static class StringItem implements Item {
-
-            private static final String[] QUALIFIERS = {"alpha", "beta", "milestone", "rc", "snapshot", "", "sp"};
-
-            private static final List<String> _QUALIFIERS = Arrays.asList(QUALIFIERS);
-
-            private static final Properties ALIASES = new Properties();
-
-            static {
-                ALIASES.put("ga", "");
-                ALIASES.put("final", "");
-                ALIASES.put("cr", "rc");
-            }
-
-            /**
-             * A comparable value for the empty-string qualifier. This one is used to determine if a given qualifier makes
-             * the version older than one without a qualifier, or more recent.
-             */
-            private static final String RELEASE_VERSION_INDEX = String.valueOf(_QUALIFIERS.indexOf(""));
-
-            private String value;
-
-            public StringItem(String value, boolean followedByDigit) {
-                if (followedByDigit && value.length() == 1) {
-                    // a1 = alpha-1, b1 = beta-1, m1 = milestone-1
-                    switch (value.charAt(0)) {
-                        case 'a':
-                            value = "alpha";
-                            break;
-                        case 'b':
-                            value = "beta";
-                            break;
-                        case 'm':
-                            value = "milestone";
-                            break;
-                    }
-                }
-                this.value = ALIASES.getProperty(value, value);
-            }
-
-            public int getType() {
-                return STRING_ITEM;
-            }
-
-            public boolean isNull() {
-                return (comparableQualifier(value).compareTo(RELEASE_VERSION_INDEX) == 0);
-            }
-
-            /**
-             * Returns a comparable value for a qualifier.
-             *
-             * This method both takes into account the ordering of known qualifiers as well as lexical ordering for unknown
-             * qualifiers.
-             *
-             * just returning an Integer with the index here is faster, but requires a lot of if/then/else to check for -1
-             * or QUALIFIERS.size and then resort to lexical ordering. Most comparisons are decided by the first character,
-             * so this is still fast. If more characters are needed then it requires a lexical sort anyway.
-             *
-             * @return an equivalent value that can be used with lexical comparison
-             */
-            public static String comparableQualifier(String qualifier) {
-                int i = _QUALIFIERS.indexOf(qualifier);
-
-                return i == -1 ? _QUALIFIERS.size() + "-" + qualifier : String.valueOf(i);
-            }
-
-            public int compareTo(Item item) {
-                if (item == null) {
-                    // 1-rc < 1, 1-ga > 1
-                    return comparableQualifier(value).compareTo(RELEASE_VERSION_INDEX);
-                }
-                switch (item.getType()) {
-                    case INTEGER_ITEM:
-                        return -1; // 1.any < 1.1 ?
-
-                    case STRING_ITEM:
-                        return comparableQualifier(value).compareTo(comparableQualifier(((StringItem) item).value));
-
-                    case LIST_ITEM:
-                        return -1; // 1.any < 1-1
-
-                    default:
-                        throw new RuntimeException("invalid item: " + item.getClass());
-                }
-            }
-
-            public String toString() {
-                return value;
-            }
-        }
-
-        /**
-         * Represents a version list item. This class is used both for the global item list and for sub-lists (which start
-         * with '-(number)' in the version specification).
-         */
-        private static class ListItem extends ArrayList<Item> implements Item {
-
-            public int getType() {
-                return LIST_ITEM;
-            }
-
-            public boolean isNull() {
-                return (size() == 0);
-            }
-
-            void normalize() {
-                for (ListIterator<Item> iterator = listIterator(size()); iterator.hasPrevious();) {
-                    Item item = iterator.previous();
-                    if (item.isNull()) {
-                        iterator.remove(); // remove null trailing items: 0, "", empty list
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            public int compareTo(Item item) {
-                if (item == null) {
-                    if (size() == 0) {
-                        return 0; // 1-0 = 1- (normalize) = 1
-                    }
-                    Item first = get(0);
-                    return first.compareTo(null);
-                }
-                switch (item.getType()) {
-                    case INTEGER_ITEM:
-                        return -1; // 1-1 < 1.0.x
-
-                    case STRING_ITEM:
-                        return 1; // 1-1 > 1-sp
-
-                    case LIST_ITEM:
-                        Iterator<Item> left = iterator();
-                        Iterator<Item> right = ((ListItem) item).iterator();
-
-                        while (left.hasNext() || right.hasNext()) {
-                            Item l = left.hasNext() ? left.next() : null;
-                            Item r = right.hasNext() ? right.next() : null;
-
-                            // if this is shorter, then invert the compare and mul with -1
-                            int result = l == null ? -1 * r.compareTo(l) : l.compareTo(r);
-
-                            if (result != 0) {
-                                return result;
-                            }
-                        }
-
-                        return 0;
-
-                    default:
-                        throw new RuntimeException("invalid item: " + item.getClass());
-                }
-            }
-
-            public String toString() {
-                StringBuilder buffer = new StringBuilder("(");
-                for (Iterator<Item> iter = iterator(); iter.hasNext();)
-                {
-                    buffer.append(iter.next());
-                    if (iter.hasNext())
-                    {
-                        buffer.append(',');
-                    }
-                }
-                buffer.append(')');
-                return buffer.toString();
-            }
-        }
-
-        public ComparableVersion(String version) {
-            parseVersion(version);
-        }
-
-        public final void parseVersion(String version) {
-            this.value = version;
-
-            items = new ListItem();
-
-            version = version.toLowerCase(Locale.ENGLISH);
-
-            ListItem list = items;
-
-            Stack<Item> stack = new Stack<Item>();
-            stack.push(list);
-
-            boolean isDigit = false;
-
-            int startIndex = 0;
-
-            for (int i = 0; i < version.length(); i++) {
-                char c = version.charAt(i);
-
-                if (c == '.') {
-                    if (i == startIndex) {
-                        list.add(IntegerItem.ZERO);
-                    } else {
-                        list.add(parseItem(isDigit, version.substring(startIndex, i)));
-                    }
-                    startIndex = i + 1;
-                } else if (c == '-') {
-                    if (i == startIndex) {
-                        list.add(IntegerItem.ZERO);
-                    } else {
-                        list.add(parseItem(isDigit, version.substring(startIndex, i)));
-                    }
-                    startIndex = i + 1;
-
-                    if (isDigit) {
-                        list.normalize(); // 1.0-* = 1-*
-
-                        if ((i + 1 < version.length()) && Character.isDigit(version.charAt(i + 1))) {
-                            // new ListItem only if previous were digits and new char is a digit,
-                            // ie need to differentiate only 1.1 from 1-1
-                            list.add(list = new ListItem());
-
-                            stack.push(list);
-                        }
-                    }
-                }
-                else if (Character.isDigit(c)) {
-                    if (!isDigit && i > startIndex) {
-                        list.add(new StringItem(version.substring(startIndex, i), true));
-                        startIndex = i;
-                    }
-
-                    isDigit = true;
-                } else {
-                    if (isDigit && i > startIndex) {
-                        list.add(parseItem(true, version.substring(startIndex, i)));
-                        startIndex = i;
-                    }
-
-                    isDigit = false;
-                }
-            }
-
-            if (version.length() > startIndex) {
-                list.add(parseItem(isDigit, version.substring(startIndex)));
-            }
-
-            while (!stack.isEmpty()) {
-                list = (ListItem) stack.pop();
-                list.normalize();
-            }
-
-            canonical = items.toString();
-        }
-
-        private static Item parseItem(boolean isDigit, String buf) {
-            return isDigit ? new IntegerItem(buf) : new StringItem(buf, false);
-        }
-
-        public int compareTo(ComparableVersion o) {
-            return items.compareTo(o.items);
-        }
-
-        public String toString() {
-            return value;
-        }
-
-        public boolean equals(Object o) {
-            return (o instanceof ComparableVersion) && canonical.equals(((ComparableVersion) o).canonical);
-        }
-
-        public int hashCode() {
-            return canonical.hashCode();
-        }
-    }
 }

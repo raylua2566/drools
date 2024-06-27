@@ -1,45 +1,42 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.reteoo;
 
-import org.drools.core.base.ClassObjectType;
+import java.util.List;
+
+import org.drools.base.base.ObjectType;
+import org.drools.base.common.RuleBasePartitionId;
+import org.drools.base.reteoo.NodeTypeEnums;
+import org.drools.base.rule.Pattern;
 import org.drools.core.common.BaseNode;
 import org.drools.core.common.DefaultFactHandle;
 import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.MemoryFactory;
-import org.drools.core.common.RuleBasePartitionId;
+import org.drools.core.common.PropagationContext;
 import org.drools.core.common.UpdateContext;
-import org.drools.core.impl.InternalKnowledgeBase;
+import org.drools.core.impl.InternalRuleBase;
 import org.drools.core.reteoo.builder.BuildContext;
-import org.drools.core.rule.Pattern;
-import org.drools.core.rule.TypeDeclaration;
-import org.drools.core.spi.ObjectType;
-import org.drools.core.spi.PropagationContext;
-import org.drools.core.util.bitmask.AllSetBitMask;
-import org.drools.core.util.bitmask.BitMask;
-import org.drools.core.util.bitmask.EmptyBitMask;
+import org.drools.util.bitmask.AllSetBitMask;
+import org.drools.util.bitmask.BitMask;
+import org.drools.util.bitmask.EmptyBitMask;
 
-import java.io.Externalizable;
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.util.List;
-
-import static org.drools.core.reteoo.PropertySpecificUtil.getSettableProperties;
+import static org.drools.base.reteoo.PropertySpecificUtil.getAccessibleProperties;
+import static org.drools.base.reteoo.PropertySpecificUtil.isPropertyReactive;
 
 /**
  * A source of <code>FactHandle</code>s for an <code>ObjectSink</code>.
@@ -51,19 +48,17 @@ import static org.drools.core.reteoo.PropertySpecificUtil.getSettableProperties;
  * @see ObjectSource
  * @see DefaultFactHandle
  */
-public abstract class ObjectSource extends BaseNode
-    implements
-    Externalizable {
-    // ------------------------------------------------------------
-    // Instance members
-    // ------------------------------------------------------------
+public abstract class ObjectSource extends BaseNode {
+
+
 
     /** The destination for <code>FactHandleImpl</code>. */
     protected ObjectSinkPropagator sink;
 
     protected ObjectSource         source;
 
-    private int                    alphaNodeHashingThreshold;
+    protected int                  alphaNodeHashingThreshold;
+    protected int                  alphaNodeRangeIndexThreshold;
 
 
     protected BitMask declaredMask = EmptyBitMask.get();
@@ -79,14 +74,8 @@ public abstract class ObjectSource extends BaseNode
     /**
      * Single parameter constructor that specifies the unique id of the node.
      */
-    ObjectSource(final int id,
-                 final RuleBasePartitionId partitionId,
-                 final boolean partitionsEnabled) {
-        this( id,
-              partitionId,
-              partitionsEnabled,
-              null,
-              3 );
+    protected ObjectSource(int id, RuleBasePartitionId partitionId) {
+        this( id, partitionId, null, 3, 3);
     }
 
     /**
@@ -94,39 +83,30 @@ public abstract class ObjectSource extends BaseNode
      */
     ObjectSource(final int id,
                  final RuleBasePartitionId partitionId,
-                 final boolean partitionsEnabled,
                  final ObjectSource objectSource,
-                 final int alphaNodeHashingThreshold) {
-        super(id, partitionId, partitionsEnabled);
+                 final int alphaNodeHashingThreshold,
+                 final int alphaNodeRangeIndexThreshold) {
+        super(id, partitionId);
         this.source = objectSource;
         this.alphaNodeHashingThreshold = alphaNodeHashingThreshold;
+        this.alphaNodeRangeIndexThreshold = alphaNodeRangeIndexThreshold;
         this.sink = EmptyObjectSinkAdapter.getInstance();
     }
 
     // ------------------------------------------------------------
     // Instance methods
     // ------------------------------------------------------------
-    public void readExternal(ObjectInput in) throws IOException,
-                                            ClassNotFoundException {
-        super.readExternal( in );
-        sink = (ObjectSinkPropagator) in.readObject();
-        source = (ObjectSource) in.readObject();
-        alphaNodeHashingThreshold = in.readInt();
-    }
 
-    public void writeExternal(ObjectOutput out) throws IOException {
-        super.writeExternal( out );
-        out.writeObject( sink );
-        out.writeObject( source );
-        out.writeInt( alphaNodeHashingThreshold );
-    }
-    
     public ObjectSource getParentObjectSource() {
         return this.source;
     }
 
-    public InternalKnowledgeBase getKnowledgeBase() {
-        return source.getKnowledgeBase();
+    public void setParentObjectSource(ObjectSource source) {
+        this.source = source;
+    }
+
+    public InternalRuleBase getRuleBase() {
+        return source.getRuleBase();
     }
 
     public void initDeclaredMask(BuildContext context) {
@@ -139,24 +119,16 @@ public abstract class ObjectSource extends BaseNode
         Pattern pattern = context.getLastBuiltPatterns()[0];
         ObjectType objectType = pattern.getObjectType();
         
-        if ( !(objectType instanceof ClassObjectType)) {
-            // Only ClassObjectType can use property specific
-            declaredMask = AllSetBitMask.get();
-            return;
-        }
-        
-        Class objectClass = ((ClassObjectType)objectType).getClassType();        
-        TypeDeclaration typeDeclaration = context.getKnowledgeBase().getTypeDeclaration(objectClass);
-        if ( typeDeclaration == null || !typeDeclaration.isPropertyReactive() ) {
+        if ( isPropertyReactive(context.getRuleBase(), objectType) ) {
+            List<String> settableProperties = getAccessibleProperties( context.getRuleBase(), objectType );
+            declaredMask = calculateDeclaredMask(pattern, objectType, settableProperties);
+        } else {
             // if property specific is not on, then accept all modification propagations
             declaredMask = AllSetBitMask.get();
-        } else {
-            List<String> settableProperties = getSettableProperties(context.getKnowledgeBase(), objectClass);
-            declaredMask = calculateDeclaredMask(settableProperties);
         }
     }
     
-    public abstract BitMask calculateDeclaredMask(List<String> settableProperties);
+    public abstract BitMask calculateDeclaredMask(Pattern pattern, ObjectType modifiedType, List<String> settableProperties);
     
     public void resetInferredMask() {
         this.inferredMask = EmptyBitMask.get();
@@ -173,6 +145,35 @@ public abstract class ObjectSource extends BaseNode
         return returnMask;
     }
 
+    @Override
+    public void setPartitionId(BuildContext context, RuleBasePartitionId partitionId) {
+        if (this.partitionId != null && this.partitionId != partitionId) {
+            source.sink.changeSinkPartition( (ObjectSink)this, this.partitionId, partitionId, source.alphaNodeHashingThreshold, source.alphaNodeRangeIndexThreshold );
+        }
+        this.partitionId = partitionId;
+    }
+
+    public final RuleBasePartitionId setSourcePartitionId(RuleBasePartitionId partitionId) {
+        if (this.partitionId == null || this.partitionId == partitionId) {
+            this.partitionId = partitionId;
+            return partitionId;
+        }
+        this.partitionId = partitionId;
+        if (source.getPartitionId() == RuleBasePartitionId.MAIN_PARTITION) {
+            setPartitionIdWithSinks( partitionId );
+        } else {
+            source.setSourcePartitionId( partitionId );
+        }
+        return partitionId;
+    }
+
+    public final void setPartitionIdWithSinks( RuleBasePartitionId partitionId ) {
+        this.partitionId = partitionId;
+        for (ObjectSink sink : getObjectSinkPropagator().getSinks()) {
+            ( (ObjectSinkNode) sink ).setPartitionIdWithSinks( partitionId );
+        }
+    }
+
     /**
      * Adds the <code>ObjectSink</code> so that it may receive
      * <code>FactHandleImpl</code> propagated from this
@@ -183,17 +184,7 @@ public abstract class ObjectSource extends BaseNode
      *            <code>FactHandleImpl</code>.
      */
     public void addObjectSink(final ObjectSink objectSink) {
-        if ( this.sink instanceof EmptyObjectSinkAdapter ) {
-            this.sink = new SingleObjectSinkAdapter( this.getPartitionId(), objectSink );
-        } else if ( this.sink instanceof SingleObjectSinkAdapter ) {
-            final CompositeObjectSinkAdapter sinkAdapter;
-            sinkAdapter = new CompositeObjectSinkAdapter( this.getPartitionId(), this.alphaNodeHashingThreshold );
-            sinkAdapter.addObjectSink( this.sink.getSinks()[0] );
-            sinkAdapter.addObjectSink( objectSink );
-            this.sink = sinkAdapter;
-        } else {
-            ((CompositeObjectSinkAdapter) this.sink).addObjectSink( objectSink );
-        }
+        this.sink = this.sink.addObjectSink( objectSink, this.alphaNodeHashingThreshold, this.alphaNodeRangeIndexThreshold );
     }
 
     /**
@@ -202,33 +193,22 @@ public abstract class ObjectSource extends BaseNode
      * @param objectSink
      *            The <code>ObjectSink</code> to remove
      */
-    public boolean removeObjectSink(final ObjectSink objectSink) {
-        if ( this.sink instanceof EmptyObjectSinkAdapter ) {
-            throw new IllegalArgumentException( "Cannot remove a sink, when the list of sinks is null" );
-        }
-
-        if ( this.sink instanceof SingleObjectSinkAdapter ) {
-            this.sink = EmptyObjectSinkAdapter.getInstance();
-        } else {
-            final CompositeObjectSinkAdapter sinkAdapter = (CompositeObjectSinkAdapter) this.sink;
-            sinkAdapter.removeObjectSink( objectSink );
-            if ( sinkAdapter.size() == 1 ) {
-                this.sink = new SingleObjectSinkAdapter( this.getPartitionId(), sinkAdapter.getSinks()[0] );
-            }
-        }
-        return true;
+    public void removeObjectSink(final ObjectSink objectSink) {
+        this.sink = this.sink.removeObjectSink( objectSink );
     }
 
-    public abstract void updateSink(ObjectSink sink,
-                                    PropagationContext context,
-                                    InternalWorkingMemory workingMemory);
+    public abstract void updateSink(ObjectSink sink, PropagationContext context, InternalWorkingMemory workingMemory);
 
     public void networkUpdated(UpdateContext updateContext) {
         this.source.networkUpdated(updateContext);
     }
 
-    public ObjectSinkPropagator getSinkPropagator() {
+    public ObjectSinkPropagator getObjectSinkPropagator() {
         return this.sink;
+    }
+
+    public void setObjectSinkPropagator(ObjectSinkPropagator sink) {
+        this.sink = sink;
     }
 
     public boolean isInUse() {
@@ -236,21 +216,16 @@ public abstract class ObjectSource extends BaseNode
     }
     
     protected boolean doRemove(final RuleRemovalContext context,
-                            final ReteooBuilder builder,
-                            final InternalWorkingMemory[] workingMemories) {
-        if ( !context.getKnowledgeBase().getConfiguration().isPhreakEnabled()  && !this.isInUse() && this instanceof MemoryFactory ) {
-            for( InternalWorkingMemory workingMemory : workingMemories ) {
-                workingMemory.clearNodeMemory( (MemoryFactory) this );
-            }
-        }
-        if ( !isInUse() && this instanceof ObjectSink ) {
+                            final ReteooBuilder builder) {
+        if ( !isInUse() && NodeTypeEnums.isObjectSink(this)) {
             this.source.removeObjectSink((ObjectSink) this);
             return true;
         }
         return false;
     }
 
-    protected ObjectTypeNode getObjectTypeNode() {
+    @Override
+    public ObjectTypeNode getObjectTypeNode() {
         ObjectSource source = this;
         while (source != null) {
             if (source.getType() ==  NodeTypeEnums.ObjectTypeNode) {

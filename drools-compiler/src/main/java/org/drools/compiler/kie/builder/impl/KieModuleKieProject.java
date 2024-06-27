@@ -1,38 +1,36 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.compiler.kie.builder.impl;
-
-import org.drools.core.common.ProjectClassLoader;
-import org.kie.api.builder.ReleaseId;
-import org.kie.api.builder.model.KieBaseModel;
-import org.kie.api.builder.model.KieSessionModel;
-import org.kie.internal.utils.ClassLoaderResolver;
-import org.kie.internal.utils.NoDepsClassLoaderResolver;
-import org.kie.internal.utils.ServiceRegistryImpl;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.drools.core.common.ProjectClassLoader.createProjectClassLoader;
-import static org.drools.core.util.ClassUtils.convertResourceToClassName;
+import org.drools.wiring.api.classloader.ProjectClassLoader;
+import org.kie.api.builder.ReleaseId;
+import org.kie.api.builder.model.KieBaseModel;
+import org.kie.api.builder.model.KieSessionModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Discovers all KieModules on the classpath, via the kmodule.xml file.
@@ -46,11 +44,11 @@ public class KieModuleKieProject extends AbstractKieProject {
 
     private List<InternalKieModule>        kieModules;
 
-    private Map<String, InternalKieModule> kJarFromKBaseName = new HashMap<String, InternalKieModule>();
+    private Map<String, InternalKieModule> kJarFromKBaseName = new HashMap<>();
 
     private InternalKieModule              kieModule;
 
-    private ProjectClassLoader             cl;
+    private ProjectClassLoader cl;
 
     public KieModuleKieProject( InternalKieModule kieModule ) {
         this( kieModule, null );
@@ -58,43 +56,24 @@ public class KieModuleKieProject extends AbstractKieProject {
     
     public KieModuleKieProject(InternalKieModule kieModule, ClassLoader parent) {
         this.kieModule = kieModule;
-        if( parent == null ) {
-            ClassLoaderResolver resolver;
-            try {
-                resolver = ServiceRegistryImpl.getInstance().get(ClassLoaderResolver.class);
-            } catch ( Exception cne ) {
-                resolver = new NoDepsClassLoaderResolver();
-            }
-            parent = resolver.getClassLoader( kieModule );
-        }
-        this.cl = createProjectClassLoader( parent, kieModule.createResourceProvider() );
+        this.cl = kieModule.createModuleClassLoader( parent );
     }
 
     public void init() {
         if ( kieModules == null ) {
-            kieModules = new ArrayList<InternalKieModule>();
-            kieModules.addAll( kieModule.getKieDependencies().values() );
+            Collection<InternalKieModule> depKieModules = kieModule.getKieDependencies().values();
+            indexParts( kieModule, depKieModules, kJarFromKBaseName );
+            kieModules = new ArrayList<>();
+            kieModules.addAll( depKieModules );
             kieModules.add( kieModule );
-            indexParts( kieModules, kJarFromKBaseName );
-            initClassLoader( cl );
-        }
-    }
-
-    private void initClassLoader(ProjectClassLoader projectCL) {
-        for ( Map.Entry<String, byte[]> entry : getClassesMap().entrySet() ) {
-            if ( entry.getValue() != null ) {
-                String resourceName = entry.getKey();
-                String className = convertResourceToClassName( resourceName );
-                projectCL.storeClass( className, resourceName, entry.getValue() );
-            }
+            cl.storeClasses( getClassesMap() );
         }
     }
 
     private Map<String, byte[]> getClassesMap() {
-        Map<String, byte[]> classes = new HashMap<String, byte[]>();
+        Map<String, byte[]> classes = new HashMap<>();
         for ( InternalKieModule kModule : kieModules ) {
-            // avoid to take type declarations defined directly in this kieModule since they have to be recompiled
-            classes.putAll( kModule.getClassesMap( kModule != this.kieModule ) );
+            classes.putAll( kModule.getClassesMap() );
         }
         return classes;
     }
@@ -123,13 +102,14 @@ public class KieModuleKieProject extends AbstractKieProject {
         return this.cl;
     }
 
-    public ClassLoader getClonedClassLoader() {
-        ProjectClassLoader clonedCL = createProjectClassLoader( cl.getParent(), kieModule.createResourceProvider() );
-        initClassLoader( clonedCL );
-        return clonedCL;
+    public boolean hasDynamicClassLoader() {
+        return this.cl.isDynamic();
     }
 
-    public void updateToModule(InternalKieModule updatedKieModule) {
+    public Map<String, KieBaseModel> updateToModule(InternalKieModule updatedKieModule) {
+        Map<String, KieBaseModel> oldKieBaseModels = new HashMap<>();
+        oldKieBaseModels.putAll( kBaseModels );
+
         this.kieModules = null;
         this.kJarFromKBaseName.clear();
 
@@ -139,14 +119,22 @@ public class KieModuleKieProject extends AbstractKieProject {
         if (currentReleaseId.getGroupId().equals(updatingReleaseId.getGroupId()) &&
             currentReleaseId.getArtifactId().equals(updatingReleaseId.getArtifactId())) {
             this.kieModule = updatedKieModule;
-        } else if (this.kieModule.getKieDependencies().keySet().contains(updatingReleaseId)) {
+        } else if (this.kieModule.getKieDependencies().containsKey(updatingReleaseId)) {
             this.kieModule.addKieDependency(updatedKieModule);
         }
 
         synchronized (this) {
             cleanIndex();
             init(); // this might override class definitions, not sure we can do it any other way though
+            // reset resource provider so it will serve resources from updated kmodule
+            this.cl.setResourceProvider(kieModule.createResourceProvider());
         }
+
+        return oldKieBaseModels;
+    }
+
+    public BuildContext createBuildContext(ResultsImpl results) {
+        return new BuildContext(results);
     }
 
     @Override

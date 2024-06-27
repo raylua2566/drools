@@ -1,28 +1,22 @@
-/*
- * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.time.impl;
-
-import org.drools.core.time.InternalSchedulerService;
-import org.drools.core.time.Job;
-import org.drools.core.time.JobContext;
-import org.drools.core.time.JobHandle;
-import org.drools.core.time.TimerService;
-import org.drools.core.time.Trigger;
-import org.kie.api.time.SessionClock;
 
 import java.util.Collection;
 import java.util.Date;
@@ -32,37 +26,41 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.drools.base.time.JobHandle;
+import org.drools.base.time.Trigger;
+import org.drools.core.time.InternalSchedulerService;
+import org.drools.core.time.Job;
+import org.drools.core.time.JobContext;
+import org.drools.core.time.TimerService;
+import org.kie.api.time.SessionClock;
+
 /**
  * A default Scheduler implementation that uses the
  * JDK built-in ScheduledThreadPoolExecutor as the
  * scheduler and the system clock as the clock.
  */
-public class JDKTimerService
-        implements
-        TimerService,
-        SessionClock,
-        InternalSchedulerService {
+public class JDKTimerService implements TimerService, SessionClock, InternalSchedulerService {
 
-    private AtomicLong                      idCounter         = new AtomicLong();
+    private final int size;
+
+    private AtomicLong                      idCounter;
 
     protected ScheduledThreadPoolExecutor   scheduler;
 
-    protected TimerJobFactoryManager        jobFactoryManager = DefaultTimerJobFactoryManager.instance;
+    protected TimerJobFactoryManager        jobFactoryManager = DefaultTimerJobFactoryManager.INSTANCE;
 
     public JDKTimerService() {
         this(1);
     }
 
     public JDKTimerService(int size) {
+        this.size = size;
         this.scheduler = new ScheduledThreadPoolExecutor(size);
+        this.idCounter = new AtomicLong(0L);
     }
 
     public void setTimerJobFactoryManager(TimerJobFactoryManager timerJobFactoryManager) {
         this.jobFactoryManager = timerJobFactoryManager;
-    }
-
-    public void setCounter(long counter) {
-        idCounter = new AtomicLong(counter);
     }
 
     public TimerJobFactoryManager getTimerJobFactoryManager() {
@@ -76,6 +74,15 @@ public class JDKTimerService
         return System.currentTimeMillis();
     }
 
+    public void reset() {
+        if (idCounter.get() != 0L) {
+            this.scheduler.shutdownNow();
+            this.scheduler = new ScheduledThreadPoolExecutor( size );
+            this.idCounter.set( 0L );
+        }
+    }
+
+    @Override
     public void shutdown() {
         // forcing a shutdownNow instead of a regular shutdown()
         // to avoid delays on shutdown. This is an irreversible 
@@ -83,9 +90,7 @@ public class JDKTimerService
         this.scheduler.shutdownNow();
     }
 
-    public JobHandle scheduleJob(Job job,
-            JobContext ctx,
-            Trigger trigger) {
+    public JobHandle scheduleJob(Job job, JobContext ctx, Trigger trigger) {
         Date date = trigger.hasNextFireTime();
         if (date != null) {
             JDKJobHandle jobHandle = new JDKJobHandle(idCounter.getAndIncrement());
@@ -111,7 +116,7 @@ public class JDKTimerService
         JDKJobHandle jobHandle = (JDKJobHandle) timerJobInstance.getJobHandle();
         long then = date.getTime();
         long now = System.currentTimeMillis();
-        ScheduledFuture<Void> future = null;
+        ScheduledFuture<Void> future;
         if (then >= now) {
             future = scheduler.schedule(item,
                     then - now,
@@ -126,11 +131,12 @@ public class JDKTimerService
         jobFactoryManager.addTimerJobInstance(timerJobInstance);
     }
 
-    public boolean removeJob(JobHandle jobHandle) {
-        jobHandle.setCancel(true);
+    public void removeJob(JobHandle jobHandle) {
+        jobHandle.cancel();
+        jobFactoryManager.removeTimerJobInstance(jobHandle);
+
         JDKJobHandle jdkJobHandle = (JDKJobHandle) jobHandle;
-        jobFactoryManager.removeTimerJobInstance(jdkJobHandle.getTimerJobInstance());
-        return this.scheduler.remove((Runnable) jdkJobHandle.getFuture());
+        this.scheduler.remove((Runnable) jdkJobHandle.getFuture());
     }
 
     public static class JDKJobHandle extends DefaultJobHandle

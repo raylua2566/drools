@@ -1,59 +1,98 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.core.reteoo;
 
-import org.drools.core.spi.Tuple;
+import org.drools.base.common.NetworkNode;
+import org.drools.core.common.BaseNode;
+import org.drools.core.common.InternalFactHandle;
+import org.drools.core.common.PropagationContext;
+import org.drools.core.common.SuperCacheFixer;
 
-public interface LeftTuple extends Tuple {
+/**
+ * A parent class for all specific LeftTuple specializations
+ *
+ */
+public class LeftTuple
+        extends TupleImpl {
 
-    void reAddLeft();
-    void reAddRight();
+    public LeftTuple() {
+        // constructor needed for serialisation
+        super();
+    }
 
-    /* Had to add the set method because sink adapters must override
-     * the tuple sink set when the tuple was created.
-     */
-    void setLeftTupleSink(LeftTupleSink sink);
+    public LeftTuple(InternalFactHandle factHandle,
+                     Sink sink,
+                     boolean leftTupleMemoryEnabled) {
+        super(factHandle, sink, leftTupleMemoryEnabled);
+    }
 
-    LeftTuple getLeftParent();
-    void setLeftParent(LeftTuple leftParent);
+    public LeftTuple(InternalFactHandle factHandle,
+                     TupleImpl leftTuple,
+                     Sink sink) {
+        super(factHandle, leftTuple, sink);
+    }
 
-    RightTuple getRightParent();
-    void setRightParent(RightTuple rightParent);
+    public LeftTuple(TupleImpl leftTuple,
+                     Sink sink,
+                     PropagationContext pctx,
+                     boolean leftTupleMemoryEnabled) {
+        super(leftTuple, sink, pctx, leftTupleMemoryEnabled);
+    }
 
-    LeftTuple getRightParentPrevious();
-    void setRightParentPrevious(LeftTuple rightParentLeft);
+    public LeftTuple(TupleImpl leftTuple,
+                     TupleImpl rightTuple,
+                     Sink sink) {
+        super(leftTuple, rightTuple, sink);
+    }
 
-    LeftTuple getRightParentNext();
-    void setRightParentNext(LeftTuple rightParentRight);
+    public LeftTuple(TupleImpl leftTuple,
+                     TupleImpl rightTuple,
+                     Sink sink,
+                     boolean leftTupleMemoryEnabled) {
+        super( leftTuple,
+              rightTuple,
+              null,
+              null,
+              sink,
+              leftTupleMemoryEnabled );
+    }
 
-    void clearBlocker();
-    void setBlocker(RightTuple blocker);
-    RightTuple getBlocker();
+    public LeftTuple(TupleImpl leftTuple,
+                     TupleImpl rightTuple,
+                     TupleImpl currentLeftChild,
+                     TupleImpl currentRightChild,
+                     Sink sink,
+                     boolean leftTupleMemoryEnabled) {
+        super(leftTuple, rightTuple, currentLeftChild, currentRightChild, sink, leftTupleMemoryEnabled);
+    }
 
-    LeftTuple getBlockedPrevious();
-    void setBlockedPrevious(LeftTuple blockerPrevious);
+    @Override
+    public ObjectTypeNodeId getInputOtnId() {
+        return SuperCacheFixer.getLeftInputOtnId(this);
+    }
 
-    LeftTuple getBlockedNext();
-    void setBlockedNext(LeftTuple blockerNext);
+    @Override
+    public void reAdd() {
+        getFactHandle().addLastLeftTuple( this );
+    }
 
-    LeftTuple getParent();
-
-    void setPeer(LeftTuple peer);
-    LeftTuple getPeer();
-
-    short getStagedTypeForQueries();
-    void setStagedTypeForQueries( short stagedTypeForQueries );
+    public boolean isLeftTuple() {
+        return true;
+    }
 }

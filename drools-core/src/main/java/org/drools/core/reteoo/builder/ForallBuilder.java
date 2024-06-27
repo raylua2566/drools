@@ -1,28 +1,28 @@
-/*
- * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.reteoo.builder;
 
-import java.util.Iterator;
-
-import org.drools.core.rule.Forall;
-import org.drools.core.rule.GroupElement;
-import org.drools.core.rule.GroupElementFactory;
-import org.drools.core.rule.Pattern;
-import org.drools.core.rule.RuleConditionElement;
+import org.drools.base.rule.Forall;
+import org.drools.base.rule.GroupElement;
+import org.drools.base.rule.GroupElementFactory;
+import org.drools.base.rule.Pattern;
+import org.drools.base.rule.RuleConditionElement;
 
 /**
  * The Reteoo component builder for forall CE
@@ -48,20 +48,19 @@ public class ForallBuilder
         and.addChild( forall.getBasePattern() );
 
         final GroupElement not2 = GroupElementFactory.newNotInstance();
-        not2.setForallBaseObjectType( forall.getBasePattern().getObjectType() );
         if ( forall.getRemainingPatterns().size() == 1 ) {
             if ( forall.isEmptyBetaConstraints() ) {
                 // The reason why this is here is because forall can inject a
                 //  "this == " + BASE_IDENTIFIER $__forallBaseIdentifier
                 // Which we don't want to actually count in the case of forall node linking                
-                context.setEmptyForAllBetaConstraints( true );
+                context.setEmptyForAllBetaConstraints();
             }
-            not2.addChild( (Pattern) forall.getRemainingPatterns().get( 0 ) );
+            not2.addChild( forall.getRemainingPatterns().get( 0 ) );
             and.addChild( not2 );
         } else if ( forall.getRemainingPatterns().size() > 1 ) {
             final GroupElement and2 = GroupElementFactory.newAndInstance();
-            for ( final Iterator it = forall.getRemainingPatterns().iterator(); it.hasNext(); ) {
-                and2.addChild( (Pattern) it.next() );
+            for ( Pattern pattern : forall.getRemainingPatterns() ) {
+                and2.addChild( pattern );
             }
             not2.addChild( and2 );
             and.addChild( not2 );

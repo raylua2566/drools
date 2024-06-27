@@ -1,25 +1,25 @@
-/*
- * Copyright 2005 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.reteoo;
 
-import org.drools.core.common.InternalWorkingMemory;
 import org.drools.core.common.UpdateContext;
 import org.drools.core.reteoo.builder.BuildContext;
-import org.drools.core.spi.PropagationContext;
 
 public class MockTupleSource extends LeftTupleSource {
 
@@ -29,8 +29,8 @@ public class MockTupleSource extends LeftTupleSource {
 
     private int               updated;
 
-    public MockTupleSource(final int id) {
-        super( id, null );
+    public MockTupleSource(final int id, BuildContext context) {
+        super( id, context );
     }
 
     public void attach() {
@@ -45,30 +45,23 @@ public class MockTupleSource extends LeftTupleSource {
         return this.updated;
     }
 
-    public void updateSink(final LeftTupleSink sink,
-                           final PropagationContext context,
-                           final InternalWorkingMemory workingMemory) {
-        this.updated++;
-    }
-
     protected boolean doRemove(final RuleRemovalContext context,
-                               final ReteooBuilder builder,
-                               final InternalWorkingMemory[] workingMemories) {
+                               final ReteooBuilder builder) {
         return true;
     }
 
-    public void attach( BuildContext context ) {
+    public void doAttach( BuildContext context ) {
     }
 
     @Override
     public void networkUpdated(UpdateContext updateContext) {
     }
 
-    public short getType() {
+    public int getType() {
         return 0;
     }
 
-    protected ObjectTypeNode getObjectTypeNode() {
+    public ObjectTypeNode getObjectTypeNode() {
         return null;
     }
 
@@ -76,10 +69,4 @@ public class MockTupleSource extends LeftTupleSource {
     public boolean isLeftTupleMemoryEnabled() {
         return true;
     }
-
-    @Override
-    public LeftTuple createPeer(LeftTuple original) {
-        return null;
-    }
-
 }

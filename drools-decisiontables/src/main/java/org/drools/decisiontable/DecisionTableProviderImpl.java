@@ -1,35 +1,42 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.decisiontable;
 
-import org.drools.compiler.compiler.DecisionTableProvider;
-import org.drools.core.util.StringUtils;
-import org.kie.api.io.Resource;
-import org.kie.internal.builder.DecisionTableConfiguration;
-import org.kie.internal.builder.DecisionTableInputType;
-import org.kie.internal.builder.KnowledgeBuilderFactory;
-import org.kie.internal.builder.RuleTemplateConfiguration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import org.drools.decisiontable.parser.xls.PropertiesSheetListener;
+import org.drools.drl.extensions.DecisionTableProvider;
+import org.drools.template.parser.DecisionTableParseException;
+import org.drools.util.StringUtils;
+import org.kie.api.io.Resource;
+import org.kie.internal.builder.DecisionTableConfiguration;
+import org.kie.internal.builder.RuleTemplateConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DecisionTableProviderImpl
     implements
@@ -37,54 +44,87 @@ public class DecisionTableProviderImpl
 
     private static final transient Logger logger = LoggerFactory.getLogger( DecisionTableProviderImpl.class );
 
-    public String loadFromInputStream(InputStream is,
-                                      DecisionTableConfiguration configuration) {
+    @Override
+    public String loadFromResource(Resource resource,
+                                   DecisionTableConfiguration configuration) {
 
-        return compileStream( is,
-                              configuration );
+        try {
+            return compileResource( resource, configuration );
+        } catch (IOException e) {
+            throw new UncheckedIOException( e );
+        } catch (Exception e) {
+            throw new DecisionTableParseException(resource, e);
+        }
     }
 
+    @Override
     public List<String> loadFromInputStreamWithTemplates(Resource resource,
                                                          DecisionTableConfiguration configuration) {
-        List<String> drls = new ArrayList<String>( configuration.getRuleTemplateConfigurations().size() );
+        List<String> drls = new ArrayList<>( configuration.getRuleTemplateConfigurations().size() );
         ExternalSpreadsheetCompiler converter = new ExternalSpreadsheetCompiler();
         for ( RuleTemplateConfiguration template : configuration.getRuleTemplateConfigurations() ) {
             try {
-                drls.add(converter.compile(resource.getInputStream(), template.getTemplate().getInputStream(), template.getRow(), template.getCol()));
+                drls.add(converter.compile(resource.getInputStream(),
+                                           template.getTemplate().getInputStream(),
+                                           InputType.getInputTypeFromDecisionTableInputType(configuration.getInputType()),
+                                           template.getRow(),
+                                           template.getCol()));
             } catch (IOException e) {
                 logger.error( "Cannot open " + template.getTemplate(), e );
+            } catch (Exception e) {
+                throw new DecisionTableParseException(resource, e);
             }
         }
         return drls;
     }
 
-    private String compileStream(InputStream is,
-                                 DecisionTableConfiguration configuration) {
-        SpreadsheetCompiler compiler = new SpreadsheetCompiler();
-
-        //JBRULES-3005: Sensible default when DecisionTableConfiguration is not provided
-        if ( configuration == null ) {
-            configuration = KnowledgeBuilderFactory.newDecisionTableConfiguration();
-            configuration.setInputType( DecisionTableInputType.XLS );
-        }
+    private String compileResource(Resource resource,
+                                   DecisionTableConfiguration configuration) throws IOException {
+        SpreadsheetCompiler compiler = new SpreadsheetCompiler(configuration.isTrimCell());
 
         switch ( configuration.getInputType() ) {
             case XLS :
             case XLSX :
                 if ( StringUtils.isEmpty( configuration.getWorksheetName() ) ) {
-                    return compiler.compile( is,
+                    return compiler.compile( resource,
                                              InputType.XLS );
                 } else {
-                    return compiler.compile( is,
+                    return compiler.compile( resource.getInputStream(),
                                              configuration.getWorksheetName() );
                 }
             case CSV : {
-                return compiler.compile( is,
+                return compiler.compile( resource.getInputStream(),
                                          InputType.CSV );
             }
         }
 
         return null;
+    }
+
+    @Override
+    public Map<String, List<String[]>> loadPropertiesFromFile(File file, DecisionTableConfiguration configuration) {
+        switch (configuration.getInputType()) {
+            case XLS :
+            case XLSX :
+                PropertiesSheetListener propertiesSheetListener = new PropertiesSheetListener();
+                InputType.XLS.createParser(propertiesSheetListener).parseFile(file);
+                return propertiesSheetListener.getProperties();
+            default :
+                return new HashMap<>();
+        }
+    }
+
+    @Override
+    public Map<String, List<String[]>> loadPropertiesFromInputStream(InputStream inputStream, DecisionTableConfiguration configuration) {
+        switch (configuration.getInputType()) {
+            case XLS :
+            case XLSX :
+                PropertiesSheetListener propertiesSheetListener = new PropertiesSheetListener();
+                InputType.XLS.createParser(propertiesSheetListener).parseFile(inputStream);
+                return propertiesSheetListener.getProperties();
+            default :
+                return new HashMap<>();
+        }
     }
 
     /**

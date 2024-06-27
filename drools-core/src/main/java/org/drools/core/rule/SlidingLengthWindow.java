@@ -1,27 +1,22 @@
-/*
- * Copyright 2010 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
-
 package org.drools.core.rule;
-
-import org.drools.core.common.EventFactHandle;
-import org.drools.core.common.InternalFactHandle;
-import org.drools.core.common.InternalWorkingMemory;
-import org.drools.core.common.PropagationContextFactory;
-import org.drools.core.reteoo.ObjectTypeNode;
-import org.drools.core.spi.PropagationContext;
 
 import java.io.Externalizable;
 import java.io.IOException;
@@ -30,13 +25,20 @@ import java.io.ObjectOutput;
 import java.util.Collection;
 import java.util.Collections;
 
+import org.drools.core.common.DefaultEventHandle;
+import org.drools.core.common.PhreakPropagationContextFactory;
+import org.drools.core.common.PropagationContext;
+import org.drools.core.common.ReteEvaluator;
+import org.drools.core.reteoo.ObjectTypeNode;
+import org.kie.api.runtime.rule.FactHandle;
+
 /**
  * A length window behavior implementation
  */
 public class SlidingLengthWindow
-    implements
-    Externalizable,
-    Behavior {
+        implements
+        Externalizable,
+        BehaviorRuntime {
 
     protected int size;
 
@@ -55,17 +57,17 @@ public class SlidingLengthWindow
     /**
      * @inheritDoc
      *
-     * @see java.io.Externalizable#readExternal(java.io.ObjectInput)
+     * @see Externalizable#readExternal(ObjectInput)
      */
     public void readExternal(final ObjectInput in) throws IOException,
-                                                  ClassNotFoundException {
+                                                          ClassNotFoundException {
         this.size = in.readInt();
     }
 
     /**
      * @inheritDoc
      *
-     * @see java.io.Externalizable#writeExternal(java.io.ObjectOutput)
+     * @see Externalizable#writeExternal(ObjectOutput)
      */
     public void writeExternal(final ObjectOutput out) throws IOException {
         out.writeInt( this.size );
@@ -90,7 +92,7 @@ public class SlidingLengthWindow
         this.size = size;
     }
 
-    public Behavior.Context createContext() {
+    public BehaviorContext createContext() {
         return new SlidingLengthWindowContext( this.size );
     }
 
@@ -98,28 +100,25 @@ public class SlidingLengthWindow
      * @inheritDoc
      */
     public boolean assertFact(final Object context,
-                              final InternalFactHandle handle,
+                              final FactHandle handle,
                               final PropagationContext pctx,
-                              final InternalWorkingMemory workingMemory) {
+                              final ReteEvaluator reteEvaluator) {
         SlidingLengthWindowContext window = (SlidingLengthWindowContext) context;
         window.pos = (window.pos + 1) % window.handles.length;
         if ( window.handles[window.pos] != null ) {
-            final EventFactHandle previous = window.handles[window.pos];
+            final DefaultEventHandle previous = window.handles[window.pos];
             // retract previous
-            PropagationContextFactory pctxFactory = workingMemory.getKnowledgeBase().getConfiguration().getComponentFactory().getPropagationContextFactory();
-            final PropagationContext expiresPctx = pctxFactory.createPropagationContext(pctx.getPropagationNumber(), PropagationContext.EXPIRATION,
-                                                                                        null, null, previous);
-            ObjectTypeNode.doRetractObject( previous, expiresPctx, workingMemory);
-            expiresPctx.evaluateActionQueue( workingMemory );
+            final PropagationContext expiresPctx = PhreakPropagationContextFactory.createPropagationContextForFact(reteEvaluator, previous, PropagationContext.Type.EXPIRATION);
+            ObjectTypeNode.doRetractObject( previous, expiresPctx, reteEvaluator);
         }
-        window.handles[window.pos] = (EventFactHandle) handle;
+        window.handles[window.pos] = (DefaultEventHandle) handle;
         return true;
     }
 
     public void retractFact(final Object context,
-                            final InternalFactHandle handle,
+                            final FactHandle handle,
                             final PropagationContext pctx,
-                            final InternalWorkingMemory workingMemory) {
+                            final ReteEvaluator reteEvaluator) {
         SlidingLengthWindowContext window = (SlidingLengthWindowContext) context;
         final int last = (window.pos == 0) ? window.handles.length - 1 : window.pos - 1;
         // we start the loop on current pos because the most common scenario is to retract the
@@ -135,7 +134,7 @@ public class SlidingLengthWindow
 
     public void expireFacts(final Object context,
                             final PropagationContext pctx,
-                            final InternalWorkingMemory workingMemory) {
+                            final ReteEvaluator reteEvaluator) {
         // do nothing?
     }
 
@@ -155,21 +154,27 @@ public class SlidingLengthWindow
      * A Context object for length windows
      */
     public static class SlidingLengthWindowContext
-        implements
-        Behavior.Context,
-        Externalizable {
+            implements
+            BehaviorContext,
+            Externalizable {
 
-        public EventFactHandle[] handles;
+        public DefaultEventHandle[] handles;
         public int               pos = 0;
 
         public SlidingLengthWindowContext(final int size) {
-            this.handles = new EventFactHandle[size];
+            this.handles = new DefaultEventHandle[size];
+        }
+
+        /**
+         * Do not use this constructor! It should be used just by deserialization.
+         */
+        public SlidingLengthWindowContext() {
         }
 
         public void readExternal(ObjectInput in) throws IOException,
-                                                ClassNotFoundException {
+                                                        ClassNotFoundException {
             this.pos = in.readInt();
-            this.handles = (EventFactHandle[]) in.readObject();
+            this.handles = (DefaultEventHandle[]) in.readObject();
 
         }
 
@@ -178,7 +183,7 @@ public class SlidingLengthWindow
             out.writeObject( this.handles );
         }
 
-        public Collection<EventFactHandle> getFactHandles() {
+        public Collection<DefaultEventHandle> getFactHandles() {
             return Collections.emptyList();
         }
     }

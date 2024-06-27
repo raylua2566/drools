@@ -1,18 +1,21 @@
-/*
- * Copyright 2015 Red Hat, Inc. and/or its affiliates.
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
-*/
-
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.drools.games;
 
 import org.kie.api.runtime.KieSession;
@@ -20,15 +23,15 @@ import org.kie.api.runtime.rule.EntryPoint;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.KeyEvent;
-import java.awt.event.KeyListener;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
+import java.awt.event.*;
+import java.awt.image.BufferStrategy;
 
-public class GameUI {
+public class GameUI extends Canvas{
     private GameConfiguration conf;
-    private GameFrame   frame;
-    private MyJPanel    panel;
+    private JFrame   frame;
+    private JPanel    panel;
+    private BufferStrategy bufferStrategy;
+    private Graphics2D graphics;
 
     KieSession ksession;
 
@@ -41,38 +44,67 @@ public class GameUI {
      * Initialize the contents of the frame.
      */
     public void init() {
-        frame = new GameFrame();
+        frame =  new JFrame("Drools Example");
         frame.setDefaultCloseOperation(conf.isExitOnClose() ? JFrame.EXIT_ON_CLOSE : JFrame.DISPOSE_ON_CLOSE);
         frame.setResizable( false );
         frame.setBackground(Color.BLACK);
         frame.getContentPane().setBackground(Color.BLACK);
-        frame.setSize(new Dimension(conf.getWindowWidth(), conf.getWindowHeight()));
 
-        panel = new MyJPanel("", Color.BLACK);
-        frame.add( panel );
-        panel.init();
-        panel.getBufferedImage();
+
+        panel = (JPanel) frame.getContentPane();
+        panel.setPreferredSize(new Dimension(conf.getWindowWidth(), conf.getWindowHeight()));
+        panel.setLayout(null);
+
+        setBounds(0, 0, conf.getWindowWidth(), conf.getWindowHeight());
+        panel.add(this);
+        setIgnoreRepaint(true);
+
+        panel.setFocusable(false); // GameUI is used in Canvas-based games only (Invaders, Pong) and only need keylistener on the external Swing JFrame 
+        setFocusable(false);
+        KeyListener klistener = new GameKeyListener( ksession.getEntryPoint( "KeyPressedStream" ), ksession.getEntryPoint( "KeyReleasedStream" ) );
+        frame.addKeyListener(klistener);
 
         frame.setLocationRelativeTo(null); // Center in screen
         frame.pack();
+        frame.setResizable(false);
         frame.setVisible( true );
-    }
 
+        createBufferStrategy(2);
+        bufferStrategy = getBufferStrategy();
+    }
+    
+    protected void registerWindowListenerOnFrame(WindowListener listener) {
+        frame.addWindowListener(listener);
+    }
+    
+    protected KieSession getKieSession() {
+        return this.ksession;
+    }
 
     public JPanel getCanvas() {
         return panel;
     }
 
     public Graphics getGraphics() {
-        return panel.getGraphics2D();
+        if ( graphics == null ) {
+            graphics = (Graphics2D) bufferStrategy.getDrawGraphics();
+        }
+        return graphics;
     }
 
+    public  void disposeGraphics() {
+        if ( graphics != null ) {
+            graphics.dispose();
+        }
+        graphics = null;
+    }
+    
     public void repaint() {
-        panel.disposeGraphics2D();
-        frame.waitForPaint();
+        getBufferStrategy().show();
+        disposeGraphics();
     }
 
-    public static class GameKeyListener implements KeyListener {
+    public static class GameKeyListener extends KeyAdapter {
         EntryPoint keyPressedEntryPoint;
         EntryPoint keyReleasedEntryPoint;
 
@@ -86,60 +118,13 @@ public class GameUI {
         }
 
         public void keyPressed(KeyEvent e) {
+            //System.out.println("pressed1" + e);
             this.keyPressedEntryPoint.insert( e );
         }
 
         public void keyReleased(KeyEvent e) {
+            //System.out.println("released1" + e);
             this.keyReleasedEntryPoint.insert( e );
         }        
-    }
-
-    public class MyJPanel extends GamePanel {
-
-        public MyJPanel(String name, Color color) {
-            super(name, color);
-        }
-
-        public void init() {
-            KeyListener klistener = new GameKeyListener( ksession.getEntryPoint( "KeyPressedStream" ), ksession.getEntryPoint( "KeyReleasedStream" ) );
-            addKeyListener(klistener);
-
-            addMouseListener(new MouseListener() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    requestFocus();
-                }
-
-                @Override
-                public void mousePressed(MouseEvent e) {
-
-                }
-
-                @Override
-                public void mouseReleased(MouseEvent e) {
-
-                }
-
-                @Override
-                public void mouseEntered(MouseEvent e) {
-
-                }
-
-                @Override
-                public void mouseExited(MouseEvent e) {
-
-                }
-            });
-
-            setPreferredSize(new Dimension(conf.getWindowWidth(), conf.getWindowHeight()));
-            setSize(new Dimension(conf.getWindowWidth(), conf.getWindowHeight()));
-            setBackground(Color.BLACK);
-            setDoubleBuffered(true);
-
-
-            setFocusable(true);
-            requestFocus();
-        }
-
     }
 }
